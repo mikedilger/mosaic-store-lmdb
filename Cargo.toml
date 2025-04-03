@@ -1,0 +1,9 @@
+[package]
+name = "mosaic-store-lmdb"
+version = "0.1.0"
+description = "Mosaic protocol record storage library using an LMDB backend"
+authors = [ "Mike Dilger <mike@mikedilger.com>" ]
+license = "MIT"
+edition = "2024"
+
+[dependencies]
