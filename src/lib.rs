@@ -27,3 +27,6 @@
     missing_copy_implementations,
     missing_docs
 )]
+
+mod error;
+pub use error::{Error, InnerError};
