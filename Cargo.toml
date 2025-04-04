@@ -10,3 +10,7 @@ edition = "2024"
 heed = "0.22"
 mmap-append = "0.2"
 mosaic-core = { git = "https://github.com/SteveFarroll/mosaic-core", branch = "master" }
+
+[dev-dependencies]
+rand = "0.8"
+tempfile = "3"

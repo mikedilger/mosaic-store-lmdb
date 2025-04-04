@@ -24,6 +24,12 @@ impl std::fmt::Display for Error {
 /// Errors that can occur in the crate
 #[derive(Debug)]
 pub enum InnerError {
+    /// Buffer Too Small
+    BufferTooSmall,
+
+    /// End of Input
+    EndOfInput,
+
     /// A general error
     General(String),
 
@@ -32,14 +38,20 @@ pub enum InnerError {
 
     /// An error from LMDB, our upstream storage crate
     Lmdb(heed::Error),
+
+    /// A Mosaic Core error
+    MosaicCore(mosaic_core::Error),
 }
 
 impl std::fmt::Display for InnerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            InnerError::BufferTooSmall => write!(f, "Buffer too small"),
+            InnerError::EndOfInput => write!(f, "End of input"),
             InnerError::General(s) => write!(f, "{s}"),
             InnerError::Io(e) => write!(f, "I/O: {e}"),
             InnerError::Lmdb(e) => write!(f, "LMDB: {e}"),
+            InnerError::MosaicCore(e) => write!(f, "Mosaic Core: {e}"),
         }
     }
 }
@@ -82,6 +94,16 @@ impl From<heed::Error> for Error {
     fn from(err: heed::Error) -> Self {
         Error {
             inner: InnerError::Lmdb(err),
+            location: Location::caller(),
+        }
+    }
+}
+
+impl From<mosaic_core::Error> for Error {
+    #[track_caller]
+    fn from(err: mosaic_core::Error) -> Self {
+        Error {
+            inner: InnerError::MosaicCore(err),
             location: Location::caller(),
         }
     }

@@ -30,3 +30,6 @@
 
 mod error;
 pub use error::{Error, InnerError};
+
+mod records;
+use records::Records;
