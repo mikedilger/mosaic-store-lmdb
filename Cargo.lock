@@ -741,7 +741,7 @@ dependencies = [
 [[package]]
 name = "mosaic-core"
 version = "0.1.0"
-source = "git+https://github.com/mikedilger/mosaic-core?branch=master#e4d261018773820a9252bc9ff7ebf9b4f655162d"
+source = "git+https://github.com/mikedilger/mosaic-core?branch=master#746745763fae3322d37a2fc95bb2b1f9b3ec8604"
 dependencies = [
  "bitflags",
  "blake3",
