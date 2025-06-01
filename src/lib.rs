@@ -33,3 +33,6 @@ pub use error::{Error, InnerError};
 
 mod records;
 use records::Records;
+
+mod indexes;
+use indexes::Indexes;
