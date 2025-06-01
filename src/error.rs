@@ -27,8 +27,14 @@ pub enum InnerError {
     /// Buffer Too Small
     BufferTooSmall,
 
+    /// The record duplicates a record that we already have
+    Duplicate,
+
     /// End of Input
     EndOfInput,
+
+    /// Filter is too wide
+    FilterTooWide,
 
     /// A general error
     General(String),
@@ -47,7 +53,9 @@ impl std::fmt::Display for InnerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             InnerError::BufferTooSmall => write!(f, "Buffer too small"),
+            InnerError::Duplicate => write!(f, "Duplicate"),
             InnerError::EndOfInput => write!(f, "End of input"),
+            InnerError::FilterTooWide => write!(f, "Filter is too wide"),
             InnerError::General(s) => write!(f, "{s}"),
             InnerError::Io(e) => write!(f, "I/O: {e}"),
             InnerError::Lmdb(e) => write!(f, "LMDB: {e}"),
@@ -58,7 +66,12 @@ impl std::fmt::Display for InnerError {
 
 impl StdError for InnerError {
     fn source(&self) -> Option<&(dyn StdError + 'static)> {
-        None
+        match self {
+            InnerError::Io(e) => Some(e),
+            InnerError::Lmdb(e) => Some(e),
+            InnerError::MosaicCore(e) => Some(e),
+            _ => None,
+        }
     }
 }
 
