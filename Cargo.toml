@@ -8,6 +8,7 @@ edition = "2024"
 
 [dependencies]
 heed = "0.22"
+itertools = "0.14"
 mmap-append = "0.2"
 mosaic-core = { git = "https://github.com/mikedilger/mosaic-core", branch = "master" }
 
