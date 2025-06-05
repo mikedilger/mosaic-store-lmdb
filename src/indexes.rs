@@ -324,7 +324,7 @@ impl Indexes {
     ) -> Result<RoPrefix<'a, Bytes, U64<NativeEndian>>, Error> {
         Ok(self
             .ref_index
-            .prefix_iter(txn, timestamp.be_reverse_bytes().as_slice())?)
+            .prefix_iter(txn, timestamp.to_inverse_bytes().as_slice())?)
     }
 
     /// Iterate through records of a given public key (author or signing)
@@ -427,7 +427,7 @@ impl IndexBytes for (PublicKey, &Tag, Timestamp) {
             key[PREFIX..PREFIX + taglen].copy_from_slice(tag.as_bytes());
             // leave the rest zeroes
         }
-        key[PREFIX + PREFIX..].copy_from_slice(timestamp.be_reverse_bytes().as_slice());
+        key[PREFIX + PREFIX..].copy_from_slice(timestamp.to_inverse_bytes().as_slice());
         key
     }
 }
@@ -451,7 +451,7 @@ impl IndexBytes for (Kind, PublicKey, Timestamp) {
         let mut key: Vec<u8> = vec![0; 2 + PREFIX + 6];
         key[0..2].copy_from_slice(kind.0.to_be_bytes().as_slice());
         key[2..2 + PREFIX].copy_from_slice(&eitherkey.as_bytes().as_slice()[..16]);
-        key[2 + PREFIX..].copy_from_slice(timestamp.be_reverse_bytes().as_slice());
+        key[2 + PREFIX..].copy_from_slice(timestamp.to_inverse_bytes().as_slice());
         key
     }
 }
@@ -485,7 +485,7 @@ impl IndexBytes for (&Tag, Kind, Timestamp) {
             key[0..taglen].copy_from_slice(tag.as_bytes());
         }
         key[PREFIX..PREFIX + 2].copy_from_slice(kind.0.to_be_bytes().as_slice());
-        key[PREFIX + 2..].copy_from_slice(timestamp.be_reverse_bytes().as_slice());
+        key[PREFIX + 2..].copy_from_slice(timestamp.to_inverse_bytes().as_slice());
         key
     }
 }
