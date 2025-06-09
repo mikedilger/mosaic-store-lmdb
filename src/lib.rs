@@ -35,12 +35,13 @@ mod records;
 use records::Records;
 
 mod indexes;
-use indexes::{Indexes, Key, KeyKind};
+use indexes::Indexes;
 
 pub use heed;
 use heed::types::Bytes;
 use heed::{Database, RoTxn, RwTxn, WithoutTls};
 
+use itertools::Itertools;
 use mosaic_core::{Filter, FilterElementType, Id, Record, Reference, Timestamp};
 use std::collections::BTreeSet;
 use std::fs;
@@ -113,7 +114,7 @@ impl Store {
     /// If the record already exists, you will get an InnerError::Duplicate
     ///
     /// We do not validate the record.
-    pub fn store_record(&self, record: &Record) -> Result<u64, Error> {
+    pub fn store_record(&self, record: &Record) -> Result<usize, Error> {
         let mut txn = self.indexes.write_txn()?;
 
         // Return Duplicate if it already exists
@@ -126,10 +127,10 @@ impl Store {
         }
 
         // Store the record
-        let offset = self.records.store_record(record)? as u64;
+        let offset = self.records.store_record(record)?;
 
         // Index the record
-        self.indexes.index(&mut txn, record, offset)?;
+        self.indexes.index(&mut txn, record, offset as u64)?;
 
         txn.commit()?;
 
@@ -143,7 +144,7 @@ impl Store {
         offset: usize,
     ) -> Result<(), Error> {
         let record = unsafe { self.records.get_record_by_offset(offset)? };
-        self.indexes.deindex(txn, record, false)?;
+        self.indexes.deindex(txn, record, offset as u64, false)?;
         Ok(())
     }
 
@@ -293,145 +294,26 @@ impl Store {
 
     fn find_records_by_tags<F>(
         &self,
-        filter: &Filter,
-        limit: usize,
-        screen: F,
+        _filter: &Filter,
+        _limit: usize,
+        _screen: F,
     ) -> Result<Vec<&Record>, Error>
     where
         F: Fn(&Record) -> bool,
     {
-        // We rely on the BTreeSet to keep our events in order.
-        // Because iter_tag uses `tag_kind_ts_index`, we don't have
-        // an easy way to walk through timestamps in order.
-        // We can't even do limit until we collect all of them.
-        // This is not very efficient, but it is hard to fix without a
-        // different kind of indexing. This is a fallback/scrape anyway.
-
-        let txn = self.indexes.read_txn()?;
-
-        // We insert into a BTreeSet to keep them reverse time-ordered
-        let mut output: BTreeSet<&Record> = BTreeSet::new();
-
-        let since = match filter.get_element(FilterElementType::SINCE) {
-            None => Timestamp::min(),
-            Some(fe) => fe.since()?.unwrap_or(Timestamp::min()),
-        };
-
-        let until = match filter.get_element(FilterElementType::UNTIL) {
-            None => Timestamp::max(),
-            Some(fe) => fe.since()?.unwrap_or(Timestamp::max()),
-        };
-
-        // We can unwrap, because if we couldn't this function would not
-        // have been called
-        let iter = filter
-            .get_element(FilterElementType::INCLUDED_TAGS)
-            .unwrap()
-            .tags()
-            .unwrap();
-
-        for tag in iter {
-            for elem in self.indexes.iter_tag(&txn, tag)? {
-                let (lmdbkey, offset) = elem?;
-                let key = Key::from_bytes_and_kind(lmdbkey, KeyKind::TagpreKindTs);
-
-                // Timebound
-                let ts = key.timestamp().unwrap();
-                if ts < since {
-                    continue;
-                }
-                if ts >= until {
-                    continue;
-                }
-
-                // Get at the record
-                let record = unsafe { self.records.get_record_by_offset(offset as usize)? };
-
-                // Screen and filter
-                if screen(record) && filter.matches(record)? {
-                    let _ = output.insert(record);
-                }
-            }
-        }
-
-        let events = output.iter().take(limit).copied().collect();
-
-        Ok(events)
+        unimplemented!()
     }
 
     fn find_records_by_keys<F>(
         &self,
-        filter: &Filter,
-        limit: usize,
-        screen: F,
+        _filter: &Filter,
+        _limit: usize,
+        _screen: F,
     ) -> Result<Vec<&Record>, Error>
     where
         F: Fn(&Record) -> bool,
     {
-        // We rely on the BTreeSet to keep our events in order.
-        // Because iter_eitherkey uses `eitherkey_tag_ts_index`, we don't have
-        // an easy way to walk through timestamps in order.
-        // We can't even do limit until we collect all of them.
-        // This is not very efficient, but it is hard to fix without a
-        // different kind of indexing. This is a fallback/scrape anyway.
-
-        let txn = self.indexes.read_txn()?;
-
-        // We insert into a BTreeSet to keep them reverse time-ordered
-        let mut output: BTreeSet<&Record> = BTreeSet::new();
-
-        let since = match filter.get_element(FilterElementType::SINCE) {
-            None => Timestamp::min(),
-            Some(fe) => fe.since()?.unwrap_or(Timestamp::min()),
-        };
-
-        let until = match filter.get_element(FilterElementType::UNTIL) {
-            None => Timestamp::max(),
-            Some(fe) => fe.since()?.unwrap_or(Timestamp::max()),
-        };
-
-        // We can unwrap, because if we couldn't this function would not
-        // have been called
-        let iter = match filter
-            .get_element(FilterElementType::AUTHOR_KEYS)
-            .unwrap()
-            .keys()
-        {
-            Some(iter) => iter,
-            None => filter
-                .get_element(FilterElementType::SIGNING_KEYS)
-                .unwrap()
-                .keys()
-                .unwrap()
-        };
-
-        for eitherkey in iter {
-            for elem in self.indexes.iter_eitherkey(&txn, eitherkey)? {
-                let (lmdbkey, offset) = elem?;
-                let key = Key::from_bytes_and_kind(lmdbkey, KeyKind::PkpreTagpreTs);
-
-                // Timebound
-                let ts = key.timestamp().unwrap();
-                if ts < since {
-                    continue;
-                }
-                if ts >= until {
-                    continue;
-                }
-
-                // Get at the record
-                let record = unsafe { self.records.get_record_by_offset(offset as usize)? };
-
-                // Screen and filter
-                if screen(record) && filter.matches(record)? {
-                    let _ = output.insert(record);
-                }
-            }
-        }
-
-        let events = output.iter().take(limit).copied().collect();
-
-        Ok(events)
+        unimplemented!()
     }
 
     fn find_records_by_kinds<F>(
@@ -443,13 +325,6 @@ impl Store {
     where
         F: Fn(&Record) -> bool,
     {
-        // We rely on the BTreeSet to keep our events in order.
-        // Because iter_kind uses `kind_eitherkey_ts_index`, we don't have
-        // an easy way to walk through timestamps in order.
-        // We can't even do limit until we collect all of them.
-        // This is not very efficient, but it is hard to fix without a
-        // different kind of indexing. This is a fallback/scrape anyway.
-
         let txn = self.indexes.read_txn()?;
 
         // We insert into a BTreeSet to keep them reverse time-ordered
@@ -465,35 +340,49 @@ impl Store {
             Some(fe) => fe.since()?.unwrap_or(Timestamp::max()),
         };
 
-        // We can unwrap, because if we couldn't this function would not
-        // have been called
-        let iter = filter
-            .get_element(FilterElementType::KINDS)
-            .unwrap()
-            .kinds()
-            .unwrap();
+        let mut errors: Vec<Error> = vec![];
 
-        for kind in iter {
-            for elem in self.indexes.iter_kind(&txn, kind)? {
-                let (lmdbkey, offset) = elem?;
-                let key = Key::from_bytes_and_kind(lmdbkey, KeyKind::KindPkpreTs);
+        let entries = filter
+            .get_element(FilterElementType::KINDS) // Option<&FilterElement>
+            .unwrap() // &FilterElement
+            .kinds() // Option<>
+            .unwrap() // FeKindsIter
+            .filter_map(|kind| {
+                // for each Kind
+                self.indexes
+                    .iter_kind(&txn, kind, since, until) // Result<RoPrefix<...>, Error>    GINA --- limit by Since and Until
+                    .map_err(|e| errors.push(e)) // Result<RoPrefix<...>, ()>
+                    .ok() // Option<RoPrefix<...>>
+            }) // RoPrefix<...>
+            .map(|roprefix| {
+                // FIXME, we should detect heed errors here.
+                roprefix.take_while(|r| r.is_ok()).map(|r| r.unwrap())
+            })
+            .kmerge(); // merge multiple sorted iterators into one sorted interator
 
-                // Timebound
-                let ts = key.timestamp().unwrap();
-                if ts < since {
-                    continue;
-                }
-                if ts >= until {
-                    continue;
-                }
+        if let Some(e) = errors.pop() {
+            return Err(e);
+        }
 
-                // Get at the record
-                let record = unsafe { self.records.get_record_by_offset(offset as usize)? };
+        for entry in entries {
+            let (kind_revstamp, offset) = entry;
 
-                // Screen and filter
-                if screen(record) && filter.matches(record)? {
-                    let _ = output.insert(record);
-                }
+            // let key = Key::from_bytes_and_kind(lmdbkey, KeyKind::KindPkpreTs);
+
+            // Timebound (fixme, do this above instead)
+            if kind_revstamp.timestamp < since {
+                continue;
+            }
+            if kind_revstamp.timestamp >= until {
+                continue;
+            }
+
+            // Get at the record
+            let record = unsafe { self.records.get_record_by_offset(offset as usize)? };
+
+            // Screen and filter
+            if screen(record) && filter.matches(record)? {
+                let _ = output.insert(record);
             }
         }
 

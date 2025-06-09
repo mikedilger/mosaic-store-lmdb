@@ -2,15 +2,16 @@ use crate::Error;
 use heed::byteorder::NativeEndian;
 use heed::types::{Bytes, U64};
 use heed::{
-    Database, DatabaseFlags, Env, EnvFlags, EnvOpenOptions, RoIter, RoPrefix, RoTxn, RwTxn,
-    WithoutTls,
+    Database, DatabaseFlags, Env, EnvFlags, EnvOpenOptions, RoIter, RoPrefix, RoRange, RoTxn,
+    RwTxn, WithoutTls,
 };
 use mosaic_core::{Id, Kind, PublicKey, Record, Reference, Tag, Timestamp};
 use std::collections::HashMap;
 use std::path::Path;
 
 mod keys;
-pub(crate) use keys::*;
+pub(crate) use keys::{KindRevstamp, KindRevstampCodec};
+pub(crate) use keys::{PrefixRevstamp, PrefixRevstampCodec};
 
 /* Four indexes:
  *
@@ -19,36 +20,23 @@ pub(crate) use keys::*;
  *                                    USE: looking up by Address
  *                                    USE: filter has a timestamp (because ID starts w/ timestamp)
  *
- *    [eitherkey + tagprefix + ts]    eitherkey = 12 bytes of key prefix
- *                                    tagprefix = 12 bytes of tag prefix
- *                                    ts = 6 bytes of reverse big-endian timestamp
- *                                    USE: filter has both eitherkey & tagprefix
- *                                    USE: filter has just eitherkey and no other index is better
- *                                         [SCRAPE]
+ *    [pubkey + rts]                  pubkey = 12 bytes of key prefix
+ *                                    rts = 8 bytes of reverse big-endian timestamp
  *
- *    [kind + eitherkey + ts]         kind = 2 bytes
- *                                    eitherkey = 12 bytes of key prefix
- *                                    ts = 6 bytes of reverse big-endian timestamp
- *                                    USE: filter has both kind & eitherkey
- *                                    USE: filter has just kind and no other index is better
- *                                         [SCRAPE]
+ *    [kind + rts]                    kind = 2 bytes
+ *                                    rts = 8 bytes of reverse big-endian timestamp
  *
- *    [tagprefix + kind + id]         tagprefix = 12 bytes of tag prefix
- *                                    kind = 2 bytes of kind
- *                                    ts = 6 bytes of reverse big-endian timestamp
- *                                    USE: filter has both tagprefix & kind
- *                                    USE: filter has just tagprefix and no other index is better
- *                                         [SCRAPE]
+ *    [tagprefix + rts]               tagprefix = 12 bytes of tag prefix
+ *                                    rts = 8 bytes of reverse big-endian timestamp
  *
- * Space used per event:   112 bytes + 104 bytes per tag
+ * Space used per event:   130 + 84T
  *
  *     index by id:    key=48, value=8    perevent=1   56 bytes
  *     index by addr:  key=48, value=8    perevent=1   56 bytes
- *     author+tags:    key=30, value=8    perevent=T   38 bytes * T
- *     signing+tags:   key=30, value=8    perevent=T   38 bytes * T
- *     kind+author:    key=20, value=8    perevent=1   28 bytes
- *     kind+signing:   key=20, value=8    perevent=1   28 bytes
- *     tag+kind:       key=20, value=8    perevent=T   28 bytes * T
+ *     author:         key=20, value=8    perevent=T   28 bytes * T
+ *     signing:        key=20, value=8    perevent=T   28 bytes * T  [unless same as author]
+ *     kind:           key=10, value=8    perevent=1   18 bytes
+ *     tag:            key=20, value=8    perevent=T   28 bytes * T
  */
 
 /// Indexes
@@ -65,17 +53,17 @@ pub(crate) use keys::*;
 /// Note that every index key ends in the timestamp.  This is so we can quickly further filter
 /// within a time range (since, until).
 ///
-/// Note that we don't use the full public key or full tags, but just the first 16 bytes.
-/// DUP_SORT avoid collisions, but we may look up more than we were seeking. That is OK as long
+/// Note that we don't use the full public key or full tags, but just the first 12 bytes.
+/// DUP_SORT avoids collisions, but we may look up more than we were seeking. That is OK as long
 /// as every lookup is followed by a check against the entire filter to remove false positives.
 #[derive(Debug)]
 pub(crate) struct Indexes {
     env: Env<WithoutTls>,
     general: Database<Bytes, Bytes>,
     ref_index: Database<Bytes, U64<NativeEndian>>,
-    eitherkey_tag_ts_index: Database<Bytes, U64<NativeEndian>>,
-    kind_eitherkey_ts_index: Database<Bytes, U64<NativeEndian>>,
-    tag_kind_ts_index: Database<Bytes, U64<NativeEndian>>,
+    pubkey_rts_index: Database<PrefixRevstampCodec, U64<NativeEndian>>,
+    kind_rts_index: Database<KindRevstampCodec, U64<NativeEndian>>,
+    tag_rts_index: Database<PrefixRevstampCodec, U64<NativeEndian>>,
     extra_tables: HashMap<&'static str, Database<Bytes, Bytes>>,
 }
 
@@ -106,23 +94,23 @@ impl Indexes {
             .types::<Bytes, U64<NativeEndian>>()
             .name("ref_index")
             .create(&mut txn)?;
-        let eitherkey_tag_ts_index = env
+        let pubkey_rts_index = env
             .database_options()
-            .types::<Bytes, U64<NativeEndian>>()
+            .types::<PrefixRevstampCodec, U64<NativeEndian>>()
             .flags(DatabaseFlags::DUP_SORT | DatabaseFlags::DUP_FIXED)
-            .name("eitherkey_tag_ts_index")
+            .name("pubkey_rts_index")
             .create(&mut txn)?;
-        let kind_eitherkey_ts_index = env
+        let kind_rts_index = env
             .database_options()
-            .types::<Bytes, U64<NativeEndian>>()
+            .types::<KindRevstampCodec, U64<NativeEndian>>()
             .flags(DatabaseFlags::DUP_SORT | DatabaseFlags::DUP_FIXED)
-            .name("kind_eitherkey_ts_index")
+            .name("kind_rts_index")
             .create(&mut txn)?;
-        let tag_kind_ts_index = env
+        let tag_rts_index = env
             .database_options()
-            .types::<Bytes, U64<NativeEndian>>()
+            .types::<PrefixRevstampCodec, U64<NativeEndian>>()
             .flags(DatabaseFlags::DUP_SORT | DatabaseFlags::DUP_FIXED)
-            .name("tag_kind_ts_index")
+            .name("tag_rts_index")
             .create(&mut txn)?;
 
         let mut extra_tables = HashMap::with_capacity(extra_table_names.len());
@@ -141,9 +129,9 @@ impl Indexes {
             env,
             general,
             ref_index,
-            eitherkey_tag_ts_index,
-            kind_eitherkey_ts_index,
-            tag_kind_ts_index,
+            pubkey_rts_index,
+            kind_rts_index,
+            tag_rts_index,
             extra_tables,
         };
 
@@ -192,45 +180,32 @@ impl Indexes {
         self.ref_index
             .put(txn, record.address().as_bytes(), &offset)?;
 
-        // Index by author key and every tag
-        for tag in record.tags() {
-            let k: OwnedKey = (record.author_public_key(), tag, record.timestamp()).into();
-            self.eitherkey_tag_ts_index
-                .put(txn, k.as_key().as_bytes(), &offset)?;
+        // Index by author key
+        let mut prts = PrefixRevstamp {
+            prefix: record.author_public_key().as_bytes()[..12]
+                .try_into()
+                .unwrap(),
+            timestamp: record.timestamp(),
+        };
+        self.pubkey_rts_index.put(txn, &prts, &offset)?;
+
+        // Index by signing key
+        if record.signing_public_key() != record.author_public_key() {
+            prts.set_prefix_from_pubkey(record.signing_public_key());
+            self.pubkey_rts_index.put(txn, &prts, &offset)?;
         }
 
-        // Index by signing key and every tag
+        // Index by kind
+        let krts = KindRevstamp {
+            kind: record.kind(),
+            timestamp: record.timestamp(),
+        };
+        self.kind_rts_index.put(txn, &krts, &offset)?;
+
+        // Index by every tag
         for tag in record.tags() {
-            let k: OwnedKey = (record.signing_public_key(), tag, record.timestamp()).into();
-            self.eitherkey_tag_ts_index
-                .put(txn, k.as_key().as_bytes(), &offset)?;
-        }
-
-        // Index by kind and author key
-        let k: OwnedKey = (
-            record.kind(),
-            record.author_public_key(),
-            record.timestamp(),
-        )
-            .into();
-        self.kind_eitherkey_ts_index
-            .put(txn, k.as_key().as_bytes(), &offset)?;
-
-        // Index by kind and signing key
-        let k: OwnedKey = (
-            record.kind(),
-            record.signing_public_key(),
-            record.timestamp(),
-        )
-            .into();
-        self.kind_eitherkey_ts_index
-            .put(txn, k.as_key().as_bytes(), &offset)?;
-
-        // Index by every tag and kind
-        for tag in record.tags() {
-            let k: OwnedKey = (tag, record.kind(), record.timestamp()).into();
-            self.tag_kind_ts_index
-                .put(txn, k.as_key().as_bytes(), &offset)?;
+            prts.set_prefix_from_tag(tag);
+            self.tag_rts_index.put(txn, &prts, &offset)?;
         }
 
         Ok(())
@@ -241,57 +216,50 @@ impl Indexes {
         &self,
         txn: &mut RwTxn<'_>,
         record: &Record,
+        offset: u64,
         leave_in_ref_index_by_id: bool,
     ) -> Result<(), Error> {
-        // Deindex by every tag and kind
+        let mut prts = PrefixRevstamp {
+            prefix: [0; 12],
+            timestamp: record.timestamp(),
+        };
+
+        // Deindex by every tag
         for tag in record.tags() {
-            let k: OwnedKey = (tag, record.kind(), record.timestamp()).into();
-            let _ = self.tag_kind_ts_index.delete(txn, k.as_key().as_bytes())?;
-        }
-
-        // Deindex by kind and signing key
-        let k: OwnedKey = (
-            record.kind(),
-            record.signing_public_key(),
-            record.timestamp(),
-        )
-            .into();
-        let _ = self
-            .kind_eitherkey_ts_index
-            .delete(txn, k.as_key().as_bytes())?;
-
-        // Deindex by kind and author key
-        let k: OwnedKey = (
-            record.kind(),
-            record.author_public_key(),
-            record.timestamp(),
-        )
-            .into();
-        let _ = self
-            .kind_eitherkey_ts_index
-            .delete(txn, k.as_key().as_bytes())?;
-
-        // Deindex by signing key and every tag
-        for tag in record.tags() {
-            let k: OwnedKey = (record.signing_public_key(), tag, record.timestamp()).into();
+            prts.set_prefix_from_tag(tag);
             let _ = self
-                .eitherkey_tag_ts_index
-                .delete(txn, k.as_key().as_bytes())?;
+                .tag_rts_index
+                .delete_one_duplicate(txn, &prts, &offset)?;
         }
 
-        // Deindex by author key and every tag
-        for tag in record.tags() {
-            let k: OwnedKey = (record.author_public_key(), tag, record.timestamp()).into();
+        // Deindex by kind
+        let krts = KindRevstamp {
+            kind: record.kind(),
+            timestamp: record.timestamp(),
+        };
+        let _ = self
+            .kind_rts_index
+            .delete_one_duplicate(txn, &krts, &offset)?;
+
+        // Deindex by signing key
+        if record.signing_public_key() != record.author_public_key() {
+            prts.set_prefix_from_pubkey(record.signing_public_key());
             let _ = self
-                .eitherkey_tag_ts_index
-                .delete(txn, k.as_key().as_bytes())?;
+                .pubkey_rts_index
+                .delete_one_duplicate(txn, &prts, &offset)?;
         }
+
+        // Deindex by author key
+        prts.set_prefix_from_pubkey(record.author_public_key());
+        let _ = self
+            .pubkey_rts_index
+            .delete_one_duplicate(txn, &prts, &offset)?;
 
         // Deindex by address
         let _ = self.ref_index.delete(txn, record.address().as_bytes())?;
 
+        // Deindex by id
         if !leave_in_ref_index_by_id {
-            // Deindex by id (functionally also by be_reverse_timestamp)
             let _ = self.ref_index.delete(txn, record.id().as_bytes())?;
         }
 
@@ -340,27 +308,28 @@ impl Indexes {
     }
 
     /// Iterate through records of a given public key (author or signing)
-    pub(crate) fn iter_eitherkey<'a>(
+    pub(crate) fn iter_pubkey<'a>(
         &'a self,
         txn: &'a RoTxn,
         pubkey: PublicKey,
-    ) -> Result<RoPrefix<'a, Bytes, U64<NativeEndian>>, Error> {
-        Ok(self
-            .eitherkey_tag_ts_index
-            .prefix_iter(txn, pubkey.as_bytes())?)
-    }
+        since: Timestamp,
+        until: Timestamp,
+    ) -> Result<RoRange<'a, PrefixRevstampCodec, U64<NativeEndian>>, Error> {
+        let prefix: [u8; 12] = pubkey.as_bytes()[..12].try_into().unwrap();
 
-    /// Iterate through records of a given public key (author and/or signing) and tagprefix
-    pub(crate) fn iter_eitherkey_tag<'a>(
-        &'a self,
-        txn: &'a RoTxn,
-        pubkey: PublicKey,
-        tag: &Tag,
-    ) -> Result<RoPrefix<'a, Bytes, U64<NativeEndian>>, Error> {
-        let k: OwnedKey = (pubkey, tag).into();
-        Ok(self
-            .eitherkey_tag_ts_index
-            .prefix_iter(txn, k.as_key().as_bytes())?)
+        let start = PrefixRevstamp {
+            prefix,
+            timestamp: until,
+        };
+
+        let end = PrefixRevstamp {
+            prefix,
+            timestamp: since,
+        };
+
+        let range = start..=end;
+
+        Ok(self.pubkey_rts_index.range(txn, &range)?)
     }
 
     /// Iterate through records of a given kind
@@ -368,23 +337,22 @@ impl Indexes {
         &'a self,
         txn: &'a RoTxn,
         kind: Kind,
-    ) -> Result<RoPrefix<'a, Bytes, U64<NativeEndian>>, Error> {
-        Ok(self
-            .kind_eitherkey_ts_index
-            .prefix_iter(txn, kind.0.to_be_bytes().as_slice())?)
-    }
+        since: Timestamp,
+        until: Timestamp,
+    ) -> Result<RoRange<'a, KindRevstampCodec, U64<NativeEndian>>, Error> {
+        let start = KindRevstamp {
+            kind,
+            timestamp: until,
+        };
 
-    /// Iterate through records of a given kind and public key (author and/or signing)
-    pub(crate) fn iter_kind_eitherkey<'a>(
-        &'a self,
-        txn: &'a RoTxn,
-        kind: Kind,
-        pubkey: PublicKey,
-    ) -> Result<RoPrefix<'a, Bytes, U64<NativeEndian>>, Error> {
-        let k: OwnedKey = (kind, pubkey).into();
-        Ok(self
-            .kind_eitherkey_ts_index
-            .prefix_iter(txn, k.as_key().as_bytes())?)
+        let end = KindRevstamp {
+            kind,
+            timestamp: since,
+        };
+
+        let range = start..=end;
+
+        Ok(self.kind_rts_index.range(txn, &range)?)
     }
 
     /// Iterate through records of a given tag (prefix)
@@ -392,20 +360,23 @@ impl Indexes {
         &'a self,
         txn: &'a RoTxn,
         tag: &Tag,
-    ) -> Result<RoPrefix<'a, Bytes, U64<NativeEndian>>, Error> {
-        Ok(self.tag_kind_ts_index.prefix_iter(txn, tag.as_bytes())?)
-    }
+        since: Timestamp,
+        until: Timestamp,
+    ) -> Result<RoRange<'a, PrefixRevstampCodec, U64<NativeEndian>>, Error> {
+        let prefix = keys::tag_to_prefix(tag);
 
-    /// Iterate through records of a given tag (prefix) and kind
-    pub(crate) fn iter_tag_kind<'a>(
-        &'a self,
-        txn: &'a RoTxn,
-        tag: &Tag,
-        kind: Kind,
-    ) -> Result<RoPrefix<'a, Bytes, U64<NativeEndian>>, Error> {
-        let k: OwnedKey = (tag, kind).into();
-        Ok(self
-            .tag_kind_ts_index
-            .prefix_iter(txn, k.as_key().as_bytes())?)
+        let start = PrefixRevstamp {
+            prefix,
+            timestamp: until,
+        };
+
+        let end = PrefixRevstamp {
+            prefix,
+            timestamp: since,
+        };
+
+        let range = start..=end;
+
+        Ok(self.tag_rts_index.range(txn, &range)?)
     }
 }
