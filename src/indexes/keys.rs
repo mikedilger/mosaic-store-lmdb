@@ -1,6 +1,7 @@
 use heed::{BoxedError, BytesDecode, BytesEncode};
 use mosaic_core::{Kind, PublicKey, Tag, Timestamp};
 use std::borrow::Cow;
+use std::cmp::Ordering;
 
 pub(crate) fn tag_to_prefix(tag: &Tag) -> [u8; 12] {
     let taglen = tag.as_bytes().len();
@@ -14,10 +15,24 @@ pub(crate) fn tag_to_prefix(tag: &Tag) -> [u8; 12] {
 }
 
 /// An LMDB key into the pubkey or tag index
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct PrefixRevstamp {
     pub(crate) prefix: [u8; 12],
     pub(crate) timestamp: Timestamp,
+}
+
+impl PartialOrd for PrefixRevstamp {
+    fn partial_cmp(&self, other: &PrefixRevstamp) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PrefixRevstamp {
+    fn cmp(&self, other: &PrefixRevstamp) -> Ordering {
+        // Compare their encoded bytes with the reversed timestamp
+        PrefixRevstampCodec::bytes_encode(&self).unwrap()
+            .cmp(&PrefixRevstampCodec::bytes_encode(other).unwrap())
+    }
 }
 
 impl PrefixRevstamp {
@@ -71,10 +86,24 @@ impl<'a> BytesDecode<'a> for PrefixRevstampCodec {
 }
 
 /// An LMDB key into the kind index
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct KindRevstamp {
     pub(crate) kind: Kind,
     pub(crate) timestamp: Timestamp,
+}
+
+impl PartialOrd for KindRevstamp {
+    fn partial_cmp(&self, other: &KindRevstamp) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for KindRevstamp {
+    fn cmp(&self, other: &KindRevstamp) -> Ordering {
+        // Compare their encoded bytes with the reversed timestamp
+        KindRevstampCodec::bytes_encode(&self).unwrap()
+            .cmp(&KindRevstampCodec::bytes_encode(other).unwrap())
+    }
 }
 
 /// A codec for mapping a `KindRevstamp` into bytes and back
