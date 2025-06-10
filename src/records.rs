@@ -153,7 +153,8 @@ impl Records {
 }
 
 /// An iterator over `Record`s in a `Records` store
-pub(crate) struct RecordsIter<'a> {
+#[derive(Debug)]
+pub struct RecordsIter<'a> {
     store: &'a Records,
     offset: usize,
 }

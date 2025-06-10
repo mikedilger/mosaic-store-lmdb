@@ -33,6 +33,7 @@ pub use error::{Error, InnerError};
 
 mod records;
 use records::Records;
+pub use records::RecordsIter;
 
 mod indexes;
 use indexes::Indexes;
@@ -191,6 +192,13 @@ impl Store {
     pub fn has_record(&self, reference: Reference) -> Result<bool, Error> {
         let txn = self.indexes.read_txn()?;
         Ok(self.indexes.get_offset_by_ref(&txn, reference)?.is_some())
+    }
+
+    /// Iterate through all records. This is expensive.
+    pub fn all_records(
+        &self
+    ) -> RecordsIter<'_> {
+        self.records.iter()
     }
 
     /// Find all records that match the `Filter` and also pass the screen function.
