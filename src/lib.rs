@@ -44,7 +44,6 @@ use heed::{Database, RoTxn, RwTxn, WithoutTls};
 
 use itertools::Itertools;
 use mosaic_core::{Filter, FilterElementType, Id, Record, Reference, Timestamp};
-use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -195,9 +194,7 @@ impl Store {
     }
 
     /// Iterate through all records. This is expensive.
-    pub fn all_records(
-        &self
-    ) -> RecordsIter<'_> {
+    pub fn all_records(&self) -> RecordsIter<'_> {
         self.records.iter()
     }
 
@@ -335,9 +332,6 @@ impl Store {
     {
         let txn = self.indexes.read_txn()?;
 
-        // We insert into a BTreeSet to keep them reverse time-ordered
-        let mut output: BTreeSet<&Record> = BTreeSet::new();
-
         let since = match filter.get_element(FilterElementType::SINCE) {
             None => Timestamp::min(),
             Some(fe) => fe.since()?.unwrap_or(Timestamp::min()),
@@ -345,20 +339,20 @@ impl Store {
 
         let until = match filter.get_element(FilterElementType::UNTIL) {
             None => Timestamp::max(),
-            Some(fe) => fe.since()?.unwrap_or(Timestamp::max()),
+            Some(fe) => fe.until()?.unwrap_or(Timestamp::max()),
         };
 
         let mut errors: Vec<Error> = vec![];
 
-        let entries = filter
+        let records = filter
             .get_element(FilterElementType::KINDS) // Option<&FilterElement>
             .unwrap() // &FilterElement
-            .kinds() // Option<>
+            .kinds() // Option<FeKindsIter>
             .unwrap() // FeKindsIter
             .filter_map(|kind| {
                 // for each Kind
                 self.indexes
-                    .iter_kind(&txn, kind, since, until) // Result<RoPrefix<...>, Error>    GINA --- limit by Since and Until
+                    .iter_kind(&txn, kind, since, until) // Result<RoPrefix<...>, Error>
                     .map_err(|e| errors.push(e)) // Result<RoPrefix<...>, ()>
                     .ok() // Option<RoPrefix<...>>
             }) // RoPrefix<...>
@@ -366,36 +360,25 @@ impl Store {
                 // FIXME, we should detect heed errors here.
                 roprefix.take_while(|r| r.is_ok()).map(|r| r.unwrap())
             })
-            .kmerge(); // merge multiple sorted iterators into one sorted interator
+            .kmerge_by(|a, b| a.0.timestamp >= b.0.timestamp) // merge multiple sorted iterators into one sorted interator
+            .unique()
+            .filter_map(|(_, offset)| {
+                // FIXME, detect errors
+                let record = unsafe { self.records.get_record_by_offset(offset as usize).unwrap() };
+
+                if screen(record) && filter.matches(record).unwrap() {
+                    Some(record)
+                } else {
+                    None
+                }
+            })
+            .take(limit)
+            .collect();
 
         if let Some(e) = errors.pop() {
             return Err(e);
         }
 
-        for entry in entries {
-            let (kind_revstamp, offset) = entry;
-
-            // let key = Key::from_bytes_and_kind(lmdbkey, KeyKind::KindPkpreTs);
-
-            // Timebound (fixme, do this above instead)
-            if kind_revstamp.timestamp < since {
-                continue;
-            }
-            if kind_revstamp.timestamp >= until {
-                continue;
-            }
-
-            // Get at the record
-            let record = unsafe { self.records.get_record_by_offset(offset as usize)? };
-
-            // Screen and filter
-            if screen(record) && filter.matches(record)? {
-                let _ = output.insert(record);
-            }
-        }
-
-        let events = output.iter().take(limit).copied().collect();
-
-        Ok(events)
+        Ok(records)
     }
 }

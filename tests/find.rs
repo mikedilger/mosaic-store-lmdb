@@ -4,6 +4,7 @@ use mosaic_core::{
     Record, RecordFlags, RecordParts, SecretKey, Tag, Timestamp,
 };
 use mosaic_store_lmdb::Store;
+use rand::prelude::SliceRandom;
 use rand::rngs::OsRng;
 
 #[test]
@@ -12,90 +13,75 @@ fn test_find_by_kind() {
 
     let secret_key = SecretKey::generate(&mut csprng);
 
-    let kind1 = Kind(1);
-    let kind2 = Kind(2);
-    let kind3 = Kind(3);
+    let kinds = vec![Kind(1), Kind(2), Kind(3), Kind(4)];
 
-    let ts1 = Timestamp::now().unwrap();
-    let ts2 = ts1 + Duration::new(1, 500_000_000);
-    let ts3 = ts2 + Duration::new(1, 500_000_000);
-    let ts4 = ts3 + Duration::new(1, 500_000_000);
-    let ts5 = ts4 + Duration::new(1, 500_000_000);
-    let ts6 = ts5 + Duration::new(1, 500_000_000);
-    let ts7 = ts6 + Duration::new(1, 500_000_000);
+    let timestamps = vec![
+        Timestamp::from_nanoseconds(1749511490000000000).unwrap(),
+        Timestamp::from_nanoseconds(1749511491111100000).unwrap(),
+        Timestamp::from_nanoseconds(1749511492222200000).unwrap(),
+        Timestamp::from_nanoseconds(1749511493333300000).unwrap(),
+        Timestamp::from_nanoseconds(1749511494444400000).unwrap(),
+        Timestamp::from_nanoseconds(1749511495555500000).unwrap(),
+        Timestamp::from_nanoseconds(1749511496666600000).unwrap(),
+        Timestamp::from_nanoseconds(1749511497777700000).unwrap(),
+    ];
+
+    let mut all_records: Vec<OwnedRecord> = vec![];
 
     let mut parts = RecordParts {
-        kind: kind1,
+        kind: kinds[0],
         deterministic_nonce: None,
-        timestamp: ts1,
+        timestamp: timestamps[0],
         flags: RecordFlags::empty(),
         tags_bytes: &[],
         payload: &[],
     };
 
-    parts.kind = kind1;
-    parts.timestamp = ts2;
-    let record_k1_ts2 = OwnedRecord::new(&secret_key, &parts).unwrap();
-    parts.timestamp = ts3;
-    let record_k1_ts3 = OwnedRecord::new(&secret_key, &parts).unwrap();
-    parts.timestamp = ts5;
-    let record_k1_ts5 = OwnedRecord::new(&secret_key, &parts).unwrap();
+    for i in 0..kinds.len() {
+        for j in 0..timestamps.len() {
+            parts.kind = kinds[i];
+            parts.timestamp = timestamps[j];
+            let r = OwnedRecord::new(&secret_key, &parts).unwrap();
+            all_records.push(r);
+        }
+    }
 
-    parts.kind = kind2;
-    parts.timestamp = ts1;
-    let record_k2_ts1 = OwnedRecord::new(&secret_key, &parts).unwrap();
-    parts.timestamp = ts4;
-    let record_k2_ts4 = OwnedRecord::new(&secret_key, &parts).unwrap();
-    parts.timestamp = ts7;
-    let record_k2_ts7 = OwnedRecord::new(&secret_key, &parts).unwrap();
+    all_records.shuffle(&mut csprng);
 
-    parts.kind = kind3;
-    parts.timestamp = ts6;
-    let record_k3_ts6 = OwnedRecord::new(&secret_key, &parts).unwrap();
+    assert_eq!(all_records.len(), 4 * 8);
 
     let tempdir = tempfile::tempdir().unwrap();
     let store = Store::new(tempdir, vec![], 2).unwrap();
 
-    store.store_record(&record_k2_ts4).unwrap();
-    store.store_record(&record_k1_ts3).unwrap();
-    store.store_record(&record_k1_ts5).unwrap();
-    store.store_record(&record_k3_ts6).unwrap();
-    store.store_record(&record_k1_ts2).unwrap();
-    store.store_record(&record_k2_ts1).unwrap();
-    store.store_record(&record_k2_ts7).unwrap();
+    for r in all_records.iter() {
+        store.store_record(&r).unwrap();
+    }
+
+    assert_eq!(store.all_records().count(), 4 * 8);
 
     let filter = OwnedFilter::new(&[
-        &OwnedFilterElement::new_kinds(&[kind1, kind2, kind3]).unwrap(),
-        &OwnedFilterElement::new_since(ts1),
-        &OwnedFilterElement::new_until(ts7),
+        // All but Kind[1]
+        &OwnedFilterElement::new_kinds(&[kinds[0], kinds[2], kinds[3]]).unwrap(),
+        // All but first timestamp
+        &OwnedFilterElement::new_since(timestamps[1]),
+        // All but last timestamp
+        &OwnedFilterElement::new_until(timestamps[6]),
     ])
     .unwrap();
 
-    let records = store.find_records(&filter, 100, |_| true, true).unwrap();
-    let mut iter = records.iter();
+    let found_records = store.find_records(&filter, 100, |_| true, true).unwrap();
 
-    println!("k1_ts2: {:?}", record_k1_ts2.id());
-    println!("k1_ts3: {:?}", record_k1_ts3.id());
-    println!("k1_ts5: {:?}", record_k1_ts5.id());
-    println!("k2_ts1: {:?}", record_k2_ts1.id());
-    println!("k2_ts4: {:?}", record_k2_ts4.id());
-    println!("k2_ts7: {:?}", record_k2_ts7.id());
-    println!("k3_ts6: {:?}", record_k3_ts6.id());
+    // Make sure we get the right number of records
+    assert_eq!(found_records.len(), 3 * 6);
 
-    let r = iter.next().unwrap();
-    assert_eq!(r.id(), record_k2_ts7.id());
-    let r = iter.next().unwrap();
-    assert_eq!(r.id(), record_k3_ts6.id());
-    let r = iter.next().unwrap();
-    assert_eq!(r.id(), record_k1_ts5.id());
-    let r = iter.next().unwrap();
-    assert_eq!(r.id(), record_k2_ts4.id());
-    let r = iter.next().unwrap();
-    assert_eq!(r.id(), record_k1_ts3.id());
-    let r = iter.next().unwrap();
-    assert_eq!(r.id(), record_k1_ts2.id());
-    let r = iter.next().unwrap();
-    assert_eq!(r.id(), record_k2_ts1.id());
+    // Make sure we get no records that are outside of our specification
+    assert_eq!(
+        found_records.iter().any(|r| {
+            r.kind() == kinds[1] || r.timestamp() == timestamps[0] || r.timestamp() == timestamps[7]
+        }),
+        false
+    );
 
-    assert_eq!(iter.next(), None);
+    // Make sure the timestamps are all in order, newest to oldest
+    assert!(found_records.is_sorted_by(|a, b| a.timestamp() >= b.timestamp()));
 }

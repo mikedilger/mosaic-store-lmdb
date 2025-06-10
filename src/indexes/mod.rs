@@ -304,7 +304,7 @@ impl Indexes {
     ) -> Result<RoPrefix<'a, Bytes, U64<NativeEndian>>, Error> {
         Ok(self
             .ref_index
-            .prefix_iter(txn, timestamp.to_inverse_bytes().as_slice())?)
+            .prefix_iter(txn, timestamp.to_bytes().as_slice())?)
     }
 
     /// Iterate through records of a given public key (author or signing)

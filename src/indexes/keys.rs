@@ -30,7 +30,8 @@ impl PartialOrd for PrefixRevstamp {
 impl Ord for PrefixRevstamp {
     fn cmp(&self, other: &PrefixRevstamp) -> Ordering {
         // Compare their encoded bytes with the reversed timestamp
-        PrefixRevstampCodec::bytes_encode(&self).unwrap()
+        PrefixRevstampCodec::bytes_encode(self)
+            .unwrap()
             .cmp(&PrefixRevstampCodec::bytes_encode(other).unwrap())
     }
 }
@@ -101,7 +102,8 @@ impl PartialOrd for KindRevstamp {
 impl Ord for KindRevstamp {
     fn cmp(&self, other: &KindRevstamp) -> Ordering {
         // Compare their encoded bytes with the reversed timestamp
-        KindRevstampCodec::bytes_encode(&self).unwrap()
+        KindRevstampCodec::bytes_encode(self)
+            .unwrap()
             .cmp(&KindRevstampCodec::bytes_encode(other).unwrap())
     }
 }
@@ -138,4 +140,3 @@ impl<'a> BytesDecode<'a> for KindRevstampCodec {
         })
     }
 }
-
