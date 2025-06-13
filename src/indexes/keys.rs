@@ -114,9 +114,9 @@ pub(crate) struct KindRevstampCodec;
 impl<'a> BytesEncode<'a> for KindRevstampCodec {
     type EItem = KindRevstamp;
     fn bytes_encode(k: &'a Self::EItem) -> Result<Cow<'a, [u8]>, BoxedError> {
-        let mut bytes: Vec<u8> = vec![0; 2 + 8];
-        bytes[0..2].copy_from_slice(&k.kind.0.to_be_bytes());
-        bytes[2..2 + 8].copy_from_slice(k.timestamp.to_inverse_bytes().as_slice());
+        let mut bytes: Vec<u8> = vec![0; 8 + 8];
+        bytes[0..8].copy_from_slice(&k.kind.to_bytes().as_slice());
+        bytes[8..8 + 8].copy_from_slice(k.timestamp.to_inverse_bytes().as_slice());
         Ok(Cow::Owned(bytes))
     }
 }
@@ -124,18 +124,19 @@ impl<'a> BytesEncode<'a> for KindRevstampCodec {
 impl<'a> BytesDecode<'a> for KindRevstampCodec {
     type DItem = KindRevstamp;
     fn bytes_decode(bytes: &'a [u8]) -> Result<Self::DItem, BoxedError> {
-        let kind_u16 = match bytes.get(..2) {
-            Some(bytes) => bytes.try_into().map(u16::from_be_bytes).unwrap(),
-            None => return Err("invalid kind revstamp key, kind part".into()),
+        let kind: Kind = match bytes.get(..8) {
+            Some(bytes) => Kind::from_bytes(bytes.try_into().unwrap()),
+            None => return Err("invalid kind revstamp key, too short for kind part".into()),
         };
-        let ts: Timestamp = match bytes.get(2..2 + 8) {
+
+        let ts: Timestamp = match bytes.get(8..8 + 8) {
             Some(bytes) => Timestamp::from_inverse_bytes(bytes.try_into().unwrap())
                 .map_err(|e| -> BoxedError { format!("{e}").into() })?,
             None => return Err("invalid kind revstamp key, timestamp part".into()),
         };
 
         Ok(KindRevstamp {
-            kind: Kind(kind_u16),
+            kind,
             timestamp: ts,
         })
     }

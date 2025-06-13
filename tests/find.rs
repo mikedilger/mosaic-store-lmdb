@@ -14,7 +14,12 @@ fn test_find_by_kind() {
 
     let secret_key = SecretKey::generate(&mut csprng);
 
-    let kinds = vec![Kind(1), Kind(2), Kind(3), Kind(4)];
+    let kinds = vec![
+        Kind::from_bytes([0, 0, 0, 0, 99, 0, 1, 14]),
+        Kind::from_bytes([0, 0, 0, 0, 99, 0, 2, 14]),
+        Kind::from_bytes([0, 0, 0, 0, 99, 0, 3, 28]),
+        Kind::from_bytes([0, 0, 0, 0, 99, 0, 4, 28]),
+    ];
 
     let timestamps = vec![
         Timestamp::from_nanoseconds(1749511490000000000).unwrap(),
@@ -112,7 +117,7 @@ fn test_find_by_pubkey() {
     let mut all_records: Vec<OwnedRecord> = vec![];
 
     let mut parts = RecordParts {
-        kind: Kind(1),
+        kind: Kind::from_bytes([0, 0, 0, 0, 99, 0, 1, 14]),
         deterministic_nonce: None,
         timestamp: timestamps[0],
         flags: RecordFlags::empty(),

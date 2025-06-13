@@ -23,19 +23,19 @@ pub(crate) use keys::{PrefixRevstamp, PrefixRevstampCodec};
  *    [pubkey + rts]                  pubkey = 12 bytes of key prefix
  *                                    rts = 8 bytes of reverse big-endian timestamp
  *
- *    [kind + rts]                    kind = 2 bytes
+ *    [kind + rts]                    kind = 8 bytes
  *                                    rts = 8 bytes of reverse big-endian timestamp
  *
  *    [tagprefix + rts]               tagprefix = 12 bytes of tag prefix
  *                                    rts = 8 bytes of reverse big-endian timestamp
  *
- * Space used per event:   130 + 84T
+ * Space used per event:   138 + 84T
  *
  *     index by id:    key=48, value=8    perevent=1   56 bytes
  *     index by addr:  key=48, value=8    perevent=1   56 bytes
  *     author:         key=20, value=8    perevent=T   28 bytes * T
  *     signing:        key=20, value=8    perevent=T   28 bytes * T  [unless same as author]
- *     kind:           key=10, value=8    perevent=1   18 bytes
+ *     kind:           key=16, value=8    perevent=1   24 bytes
  *     tag:            key=20, value=8    perevent=T   28 bytes * T
  */
 
