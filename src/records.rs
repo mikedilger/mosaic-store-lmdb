@@ -189,7 +189,9 @@ impl<'a> Iterator for RecordsIter<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mosaic_core::{Kind, OwnedRecord, Record, RecordFlags, RecordParts, SecretKey, Timestamp};
+    use mosaic_core::{
+        EMPTY_TAG_SET, Kind, OwnedRecord, Record, RecordFlags, RecordParts, SecretKey, Timestamp,
+    };
     use rand::rngs::OsRng;
 
     #[test]
@@ -210,7 +212,7 @@ mod tests {
                 deterministic_nonce: None,
                 timestamp: Timestamp::now().unwrap(),
                 flags: RecordFlags::PRINTABLE,
-                tags_bytes: b"",
+                tag_set: &*EMPTY_TAG_SET,
                 payload: b"Hello World!",
             },
         )
@@ -225,7 +227,7 @@ mod tests {
                 deterministic_nonce: None,
                 timestamp: Timestamp::now().unwrap(),
                 flags: RecordFlags::PRINTABLE,
-                tags_bytes: b"",
+                tag_set: &*EMPTY_TAG_SET,
                 payload: b"Goodbye World!",
             },
         )

@@ -203,7 +203,7 @@ impl Indexes {
         self.kind_rts_index.put(txn, &krts, &offset)?;
 
         // Index by every tag
-        for tag in record.tags() {
+        for tag in record.tag_set() {
             prts.set_prefix_from_tag(tag);
             self.tag_rts_index.put(txn, &prts, &offset)?;
         }
@@ -225,7 +225,7 @@ impl Indexes {
         };
 
         // Deindex by every tag
-        for tag in record.tags() {
+        for tag in record.tag_set() {
             prts.set_prefix_from_tag(tag);
             let _ = self
                 .tag_rts_index

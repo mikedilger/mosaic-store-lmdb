@@ -1,7 +1,8 @@
 use core::time::Duration;
 use mosaic_core::{
-    Filter, FilterElement, Id, Kind, OwnedFilter, OwnedFilterElement, OwnedRecord, PublicKey,
-    Record, RecordFlags, RecordParts, SecretKey, Tag, Timestamp,
+    EMPTY_TAG_SET, Filter, FilterElement, Id, Kind, OwnedFilter, OwnedFilterElement, OwnedRecord,
+    OwnedTag, OwnedTagSet, PublicKey, Record, RecordFlags, RecordParts, SecretKey, Tag, TagType,
+    Timestamp,
 };
 use mosaic_store_lmdb::Store;
 use rand::prelude::SliceRandom;
@@ -33,7 +34,7 @@ fn test_find_by_kind() {
         deterministic_nonce: None,
         timestamp: timestamps[0],
         flags: RecordFlags::empty(),
-        tags_bytes: &[],
+        tag_set: &*EMPTY_TAG_SET,
         payload: &[],
     };
 
@@ -115,7 +116,7 @@ fn test_find_by_pubkey() {
         deterministic_nonce: None,
         timestamp: timestamps[0],
         flags: RecordFlags::empty(),
-        tags_bytes: &[],
+        tag_set: &*EMPTY_TAG_SET,
         payload: &[],
     };
 
@@ -141,7 +142,7 @@ fn test_find_by_pubkey() {
     assert_eq!(store.all_records().count(), 4 * 8);
 
     let filter = OwnedFilter::new(&[
-        // All but Kind[1]
+        // All but secret_keys[1]
         &OwnedFilterElement::new_author_keys(&[
             secret_keys[0].public(),
             secret_keys[2].public(),
