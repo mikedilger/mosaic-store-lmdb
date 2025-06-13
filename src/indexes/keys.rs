@@ -115,7 +115,7 @@ impl<'a> BytesEncode<'a> for KindRevstampCodec {
     type EItem = KindRevstamp;
     fn bytes_encode(k: &'a Self::EItem) -> Result<Cow<'a, [u8]>, BoxedError> {
         let mut bytes: Vec<u8> = vec![0; 8 + 8];
-        bytes[0..8].copy_from_slice(&k.kind.to_bytes().as_slice());
+        bytes[0..8].copy_from_slice(k.kind.to_bytes().as_slice());
         bytes[8..8 + 8].copy_from_slice(k.timestamp.to_inverse_bytes().as_slice());
         Ok(Cow::Owned(bytes))
     }

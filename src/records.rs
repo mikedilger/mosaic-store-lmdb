@@ -190,7 +190,7 @@ impl<'a> Iterator for RecordsIter<'a> {
 mod tests {
     use super::*;
     use mosaic_core::{
-        EMPTY_TAG_SET, Kind, OwnedRecord, Record, RecordFlags, RecordParts, SecretKey, Timestamp,
+        EMPTY_TAG_SET, Kind, OwnedRecord, RecordFlags, RecordParts, SecretKey, Timestamp,
     };
     use rand::rngs::OsRng;
 

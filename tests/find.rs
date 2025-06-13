@@ -1,8 +1,6 @@
-use core::time::Duration;
 use mosaic_core::{
-    EMPTY_TAG_SET, Filter, FilterElement, Id, Kind, OwnedFilter, OwnedFilterElement, OwnedRecord,
-    OwnedTag, OwnedTagSet, PublicKey, Record, RecordFlags, RecordParts, SecretKey, Tag, TagType,
-    Timestamp,
+    EMPTY_TAG_SET, Kind, OwnedFilter, OwnedFilterElement, OwnedRecord, OwnedTag, OwnedTagSet,
+    RecordFlags, RecordParts, SecretKey, TagType, Timestamp,
 };
 use mosaic_store_lmdb::Store;
 use rand::prelude::SliceRandom;
@@ -170,6 +168,104 @@ fn test_find_by_pubkey() {
     assert_eq!(
         found_records.iter().any(|r| {
             r.author_public_key() == secret_keys[1].public()
+                || r.timestamp() == timestamps[0]
+                || r.timestamp() == timestamps[7]
+        }),
+        false
+    );
+
+    // Make sure the timestamps are all in order, newest to oldest
+    assert!(found_records.is_sorted_by(|a, b| a.timestamp() >= b.timestamp()));
+}
+
+#[test]
+fn test_find_by_tag() {
+    let mut csprng = OsRng;
+
+    let secret_key = SecretKey::generate(&mut csprng);
+
+    let tags = vec![
+        OwnedTag::new_notify_public_key(&secret_key.public()),
+        OwnedTag::new_nostr_sister(&[0; 32]),
+        OwnedTag::new(TagType(100), b"testing").unwrap(),
+        OwnedTag::new(TagType(101), b"more testing").unwrap(),
+    ];
+
+    let timestamps = vec![
+        Timestamp::from_nanoseconds(1749511490000000000).unwrap(),
+        Timestamp::from_nanoseconds(1749511491111100000).unwrap(),
+        Timestamp::from_nanoseconds(1749511492222200000).unwrap(),
+        Timestamp::from_nanoseconds(1749511493333300000).unwrap(),
+        Timestamp::from_nanoseconds(1749511494444400000).unwrap(),
+        Timestamp::from_nanoseconds(1749511495555500000).unwrap(),
+        Timestamp::from_nanoseconds(1749511496666600000).unwrap(),
+        Timestamp::from_nanoseconds(1749511497777700000).unwrap(),
+    ];
+
+    let mut all_records: Vec<OwnedRecord> = vec![];
+
+    let parts = RecordParts {
+        kind: Kind::MICROBLOG_ROOT,
+        deterministic_nonce: None,
+        timestamp: timestamps[0],
+        flags: RecordFlags::empty(),
+        tag_set: &*EMPTY_TAG_SET,
+        payload: &[],
+    };
+
+    for i in 0..tags.len() {
+        for j in 0..timestamps.len() {
+            let mut parts = parts.clone();
+            parts.timestamp = timestamps[j];
+
+            let tagset = OwnedTagSet::from_tags(tags.iter().map(|t| &**t).skip(i).take(1));
+
+            // DEBUG / VERIFY the tagset
+
+            parts.tag_set = &tagset;
+
+            let r = OwnedRecord::new(&secret_key, &parts).unwrap();
+            all_records.push(r);
+        }
+    }
+
+    all_records.shuffle(&mut csprng);
+
+    assert_eq!(all_records.len(), 4 * 8);
+
+    let tempdir = tempfile::tempdir().unwrap();
+    let store = Store::new(tempdir, vec![], 2).unwrap();
+
+    for r in all_records.iter() {
+        store.store_record(&r).unwrap();
+    }
+
+    assert_eq!(store.all_records().count(), 4 * 8);
+
+    let elements = vec![
+        // All but tags[1]
+        OwnedFilterElement::new_included_tags(&[&tags[0], &tags[2], &tags[3]]).unwrap(),
+        // All but first timestamp
+        OwnedFilterElement::new_since(timestamps[1]),
+        // All but last timestamp
+        OwnedFilterElement::new_until(timestamps[6]),
+    ];
+
+    for e in elements.iter() {
+        println!("LEN = {}", e.as_bytes().len());
+    }
+
+    let filter = OwnedFilter::new(&*elements).unwrap();
+
+    let found_records = store.find_records(&filter, 100, |_| true, true).unwrap();
+
+    // Make sure we get the right number of records
+    assert_eq!(found_records.len(), 3 * 6);
+
+    // Make sure we get no records that are outside of our specification
+    assert_eq!(
+        found_records.iter().any(|r| {
+            r.tag_set().iter().any(|t| *t == *tags[1])
                 || r.timestamp() == timestamps[0]
                 || r.timestamp() == timestamps[7]
         }),

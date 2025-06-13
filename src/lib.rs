@@ -299,14 +299,63 @@ impl Store {
 
     fn find_records_by_tags<F>(
         &self,
-        _filter: &Filter,
-        _limit: usize,
-        _screen: F,
+        filter: &Filter,
+        limit: usize,
+        screen: F,
     ) -> Result<Vec<&Record>, Error>
     where
         F: Fn(&Record) -> bool,
     {
-        unimplemented!()
+        let txn = self.indexes.read_txn()?;
+
+        let since = match filter.get_element(FilterElementType::SINCE) {
+            None => Timestamp::min(),
+            Some(fe) => fe.since()?.unwrap_or(Timestamp::min()),
+        };
+
+        let until = match filter.get_element(FilterElementType::UNTIL) {
+            None => Timestamp::max(),
+            Some(fe) => fe.until()?.unwrap_or(Timestamp::max()),
+        };
+
+        let mut errors: Vec<Error> = vec![];
+
+        let records = filter
+            .get_element(FilterElementType::INCLUDED_TAGS)
+            .unwrap() // &FilterElement
+            .tags() // Option<FeTagsIter>
+            .unwrap() // FeTagsIter
+            .filter_map(|tag| {
+                // for each Tag
+                self.indexes
+                    .iter_tag(&txn, tag, since, until) // Result<RoRange<...>, Error>
+                    .map_err(|e| errors.push(e)) // Result<RoRange<...>, ()>
+                    .ok() // Option<RoRange<...>>
+            }) // RoRange<...>
+            .map(|rorange| {
+                // FIXME, we should detect heed errors here.
+                rorange.take_while(|r| r.is_ok()).map(|r| r.unwrap())
+            })
+            .kmerge_by(|a, b| a.0.timestamp >= b.0.timestamp) // merge multiple sorted iterators into one sorted interator
+            .unique()
+            .filter_map(|(_, offset)| {
+                // FIXME, detect errors
+                let record = unsafe { self.records.get_record_by_offset(offset as usize).unwrap() };
+
+                if screen(record) && filter.matches(record).unwrap() {
+                    Some(record)
+                } else {
+                    None
+                }
+            })
+            .take(limit)
+            .collect();
+
+        if let Some(e) = errors.pop() {
+            return Err(e);
+        }
+
+        Ok(records)
     }
 
     fn find_records_by_keys<F>(
