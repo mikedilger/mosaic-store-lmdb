@@ -214,3 +214,37 @@ fn test_find_by_tag() {
         false
     );
 }
+
+#[test]
+fn test_find_by_keys_and_kind() {
+    let filter = OwnedFilter::new(&[
+        // 2 secret keys
+        &OwnedFilterElement::new_author_keys(&[
+            DATA.secret_keys[0].public(),
+            DATA.secret_keys[2].public(),
+        ])
+        .unwrap(),
+        // 3 kinds
+        &OwnedFilterElement::new_kinds(&[DATA.kinds[0], DATA.kinds[2], DATA.kinds[3]]).unwrap(),
+        // Timestamps including 2,3,4,5,6
+        &OwnedFilterElement::new_since(DATA.timestamps[2]),
+        &OwnedFilterElement::new_until(DATA.timestamps[6]),
+    ])
+    .unwrap();
+
+    let found_records = DATA.store.find_records(&filter, 300, |_| true, true).unwrap();
+
+    // We got 177, not the expected 90.  Now 4 or 5 or 2 (not uniform!).
+    // Also the output was not sorted
+    // BUT the missing fields were not there (good)
+    // AND the records were unique (good)
+
+    verify_find_output(
+        found_records.as_slice(),
+        2 * 3 * 5 * 3,
+        &[DATA.secret_keys[1].public(), DATA.secret_keys[3].public()],
+        &[DATA.kinds[1]],
+        &[DATA.timestamps[0], DATA.timestamps[1], DATA.timestamps[7]],
+    );
+}
+

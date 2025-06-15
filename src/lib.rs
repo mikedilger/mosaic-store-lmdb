@@ -44,6 +44,9 @@ use heed::{Database, RoTxn, RwTxn, WithoutTls};
 
 use itertools::Itertools;
 use mosaic_core::{Filter, FilterElementType, Id, Record, Reference, Timestamp};
+use sorted_iter::SortedIterator;
+use sorted_iter::assume::AssumeSortedByItemExt;
+use std::cmp::Ordering;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -287,14 +290,101 @@ impl Store {
 
     fn find_records_by_keys_and_kinds<F>(
         &self,
-        _filter: &Filter,
-        _limit: usize,
-        _screen: F,
+        filter: &Filter,
+        limit: usize,
+        screen: F,
     ) -> Result<Vec<&Record>, Error>
     where
         F: Fn(&Record) -> bool,
     {
-        unimplemented!()
+        let txn = self.indexes.read_txn()?;
+
+        let since = match filter.get_element(FilterElementType::SINCE) {
+            None => Timestamp::min(),
+            Some(fe) => fe.since()?.unwrap_or(Timestamp::min()),
+        };
+
+        let until = match filter.get_element(FilterElementType::UNTIL) {
+            None => Timestamp::max(),
+            Some(fe) => fe.until()?.unwrap_or(Timestamp::max()),
+        };
+
+        let mut errors: Vec<Error> = vec![];
+
+        let by_keys = filter
+            .get_element(FilterElementType::AUTHOR_KEYS)
+            .unwrap_or_else(|| // &FilterElement
+                filter
+                    .get_element(FilterElementType::SIGNING_KEYS)
+                    .unwrap())
+            .keys() // Option<FeKeysIter>
+            .unwrap() // FeKeysIter
+            .filter_map(|pubkey| {
+                // for each PublicKey
+                self.indexes
+                    .iter_pubkey(&txn, pubkey, since, until) // Result<RoRange<...>, Error>
+                    .map_err(|e| errors.push(e)) // Result<RoRange<...>, ()>
+                    .ok() // Option<RoRange<...>>
+            }) // RoRange<...>
+            .map(|rorange| {
+                // FIXME, we should detect heed errors here.
+                rorange.take_while(|r| r.is_ok()).map(|r| r.unwrap())
+            })
+            .kmerge_by(|a, b| a.0.timestamp >= b.0.timestamp) // merge multiple sorted iterators into one sorted interator
+            .unique()
+            .filter_map(|(_, offset)| {
+                // FIXME, detect errors
+                let record = unsafe { self.records.get_record_by_offset(offset as usize).unwrap() };
+
+                if screen(record) && filter.matches(record).unwrap() {
+                    Some(RecordWrapper(record))
+                } else {
+                    None
+                }
+            })
+            .assume_sorted_by_item();
+
+        let by_kinds = filter
+            .get_element(FilterElementType::KINDS) // Option<&FilterElement>
+            .unwrap() // &FilterElement
+            .kinds() // Option<FeKindsIter>
+            .unwrap() // FeKindsIter
+            .filter_map(|kind| {
+                // for each Kind
+                self.indexes
+                    .iter_kind(&txn, kind, since, until) // Result<RoRange<...>, Error>
+                    .map_err(|e| errors.push(e)) // Result<RoRange<...>, ()>
+                    .ok() // Option<RoRange<...>>
+            }) // RoRange<...>
+            .map(|rorange| {
+                // FIXME, we should detect heed errors here.
+                rorange.take_while(|r| r.is_ok()).map(|r| r.unwrap())
+            })
+            .kmerge_by(|a, b| a.0.timestamp >= b.0.timestamp) // merge multiple sorted iterators into one sorted interator
+            .unique()
+            .filter_map(|(_, offset)| {
+                // FIXME, detect errors
+                let record = unsafe { self.records.get_record_by_offset(offset as usize).unwrap() };
+
+                if screen(record) && filter.matches(record).unwrap() {
+                    Some(RecordWrapper(record))
+                } else {
+                    None
+                }
+            })
+            .assume_sorted_by_item();
+
+        let records = by_keys
+            .intersection(by_kinds)
+            .map(|rw| rw.0)
+            .take(limit)
+            .collect();
+
+        if let Some(e) = errors.pop() {
+            return Err(e);
+        }
+
+        Ok(records)
     }
 
     fn find_records_by_tags<F>(
@@ -392,13 +482,13 @@ impl Store {
             .filter_map(|pubkey| {
                 // for each PublicKey
                 self.indexes
-                    .iter_pubkey(&txn, pubkey, since, until) // Result<RoPrefix<...>, Error>
-                    .map_err(|e| errors.push(e)) // Result<RoPrefix<...>, ()>
-                    .ok() // Option<RoPrefix<...>>
-            }) // RoPrefix<...>
-            .map(|roprefix| {
+                    .iter_pubkey(&txn, pubkey, since, until) // Result<RoRange<...>, Error>
+                    .map_err(|e| errors.push(e)) // Result<RoRange<...>, ()>
+                    .ok() // Option<RoRange<...>>
+            }) // RoRange<...>
+            .map(|rorange| {
                 // FIXME, we should detect heed errors here.
-                roprefix.take_while(|r| r.is_ok()).map(|r| r.unwrap())
+                rorange.take_while(|r| r.is_ok()).map(|r| r.unwrap())
             })
             .kmerge_by(|a, b| a.0.timestamp >= b.0.timestamp) // merge multiple sorted iterators into one sorted interator
             .unique()
@@ -453,13 +543,13 @@ impl Store {
             .filter_map(|kind| {
                 // for each Kind
                 self.indexes
-                    .iter_kind(&txn, kind, since, until) // Result<RoPrefix<...>, Error>
-                    .map_err(|e| errors.push(e)) // Result<RoPrefix<...>, ()>
-                    .ok() // Option<RoPrefix<...>>
-            }) // RoPrefix<...>
-            .map(|roprefix| {
+                    .iter_kind(&txn, kind, since, until) // Result<RoRange<...>, Error>
+                    .map_err(|e| errors.push(e)) // Result<RoRange<...>, ()>
+                    .ok() // Option<RoRange<...>>
+            }) // RoRange<...>
+            .map(|rorange| {
                 // FIXME, we should detect heed errors here.
-                roprefix.take_while(|r| r.is_ok()).map(|r| r.unwrap())
+                rorange.take_while(|r| r.is_ok()).map(|r| r.unwrap())
             })
             .kmerge_by(|a, b| a.0.timestamp >= b.0.timestamp) // merge multiple sorted iterators into one sorted interator
             .unique()
@@ -483,3 +573,22 @@ impl Store {
         Ok(records)
     }
 }
+
+// We use this wrapper that sorts in reverse time order in order to use
+// the sorted_iter crate's intersection()
+#[derive(Debug, PartialEq, Eq)]
+struct RecordWrapper<'a>(&'a Record);
+
+impl PartialOrd for RecordWrapper<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for RecordWrapper<'_> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // We sort in backwards timestamp order
+        other.0.timestamp().cmp(&self.0.timestamp())
+    }
+}
+
