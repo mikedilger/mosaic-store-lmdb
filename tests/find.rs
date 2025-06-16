@@ -338,3 +338,31 @@ fn test_find_by_keys_and_tags() {
         false
     );
 }
+
+#[test]
+fn test_find_by_timestamps() {
+    let filter =
+        OwnedFilter::new(&[&OwnedFilterElement::new_timestamps(&[DATA.timestamps[1]]).unwrap()])
+            .unwrap();
+
+    let found_records = DATA
+        .store
+        .find_records(&filter, 300, |_| true, true)
+        .unwrap();
+
+    verify_find_output(
+        found_records.as_slice(),
+        4 * 4 * 1 * 3,
+        &[],
+        &[],
+        &[
+            DATA.timestamps[0],
+            DATA.timestamps[2],
+            DATA.timestamps[3],
+            DATA.timestamps[4],
+            DATA.timestamps[5],
+            DATA.timestamps[6],
+            DATA.timestamps[7],
+        ],
+    );
+}

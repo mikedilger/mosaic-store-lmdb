@@ -349,7 +349,7 @@ impl Store {
         };
 
         if has_timestamps {
-            self.find_records_by_timestamps(filter, since, until, limit, screen)
+            self.find_records_by_timestamps(filter, limit, screen)
         } else if has_keys && has_tags {
             self.find_records_by_keys_and_tags(filter, since, until, limit, screen)
         } else if has_tags && has_kinds {
@@ -369,16 +369,54 @@ impl Store {
 
     fn find_records_by_timestamps<F>(
         &self,
-        _filter: &Filter,
-        _since: Timestamp,
-        _until: Timestamp,
-        _limit: usize,
-        _screen: F,
+        filter: &Filter,
+        limit: usize,
+        screen: F,
     ) -> Result<Vec<&Record>, Error>
     where
         F: Fn(&Record) -> bool,
     {
-        unimplemented!()
+        let txn = self.indexes.read_txn()?;
+
+        let mut errors: Vec<Error> = vec![];
+
+        let records = filter
+            .get_element(FilterElementType::TIMESTAMPS)
+            .unwrap()
+            .timestamps() // Option<FeTimestampsIter>
+            .unwrap() // FeTimestampsIter
+            .filter_map(|timestamp| {
+                // for each Timestamp
+                self.indexes
+                    .iter_timestamp(&txn, timestamp) // Result<RoPrefix<...>, Error>
+                    .map_err(|e| errors.push(e)) // Result<RoPrefix<...>, ()>
+                    .ok() // Option<RoPrefix<...>>
+            }) // RoRange<...>
+            .map(|rorange| {
+                // FIXME, we should detect heed errors here.
+                rorange.take_while(|r| r.is_ok()).map(|r| r.unwrap())
+            })
+            // keys in the ref_index are IDs, we sort them backwards
+            .kmerge_by(|a, b| a >= b) // merge multiple sorted iterators into one sorted interator
+            .unique()
+            .filter_map(|(_, offset)| {
+                // FIXME, detect errors
+                let record = unsafe { self.records.get_record_by_offset(offset as usize).unwrap() };
+
+                if screen(record) && filter.matches(record).unwrap() {
+                    Some(record)
+                } else {
+                    None
+                }
+            })
+            .take(limit)
+            .collect();
+
+        if let Some(e) = errors.pop() {
+            return Err(e);
+        }
+
+        Ok(records)
     }
 
     fn find_records_by_keys_and_tags<F>(
@@ -396,8 +434,10 @@ impl Store {
 
         let mut errors: Vec<Error> = vec![];
 
-        let by_keys = iter_over_records_with_keys!(self, filter, since, until, txn, screen, &mut errors);
-        let by_tags = iter_over_records_with_tags!(self, filter, since, until, txn, screen, &mut errors);
+        let by_keys =
+            iter_over_records_with_keys!(self, filter, since, until, txn, screen, &mut errors);
+        let by_tags =
+            iter_over_records_with_tags!(self, filter, since, until, txn, screen, &mut errors);
 
         let records = by_keys
             .intersection(by_tags)
@@ -427,8 +467,10 @@ impl Store {
 
         let mut errors: Vec<Error> = vec![];
 
-        let by_tags = iter_over_records_with_tags!(self, filter, since, until, txn, screen, &mut errors);
-        let by_kinds = iter_over_records_with_kinds!(self, filter, since, until, txn, screen, &mut errors);
+        let by_tags =
+            iter_over_records_with_tags!(self, filter, since, until, txn, screen, &mut errors);
+        let by_kinds =
+            iter_over_records_with_kinds!(self, filter, since, until, txn, screen, &mut errors);
 
         let records = by_tags
             .intersection(by_kinds)
@@ -458,8 +500,10 @@ impl Store {
 
         let mut errors: Vec<Error> = vec![];
 
-        let by_keys = iter_over_records_with_keys!(self, filter, since, until, txn, screen, &mut errors);
-        let by_kinds = iter_over_records_with_kinds!(self, filter, since, until, txn, screen, &mut errors);
+        let by_keys =
+            iter_over_records_with_keys!(self, filter, since, until, txn, screen, &mut errors);
+        let by_kinds =
+            iter_over_records_with_kinds!(self, filter, since, until, txn, screen, &mut errors);
 
         let records = by_keys
             .intersection(by_kinds)
@@ -489,10 +533,11 @@ impl Store {
 
         let mut errors: Vec<Error> = vec![];
 
-        let records = iter_over_records_with_tags!(self, filter, since, until, txn, screen, &mut errors)
-            .map(|rw| rw.0)
-            .take(limit)
-            .collect();
+        let records =
+            iter_over_records_with_tags!(self, filter, since, until, txn, screen, &mut errors)
+                .map(|rw| rw.0)
+                .take(limit)
+                .collect();
 
         if let Some(e) = errors.pop() {
             return Err(e);
@@ -516,10 +561,11 @@ impl Store {
 
         let mut errors: Vec<Error> = vec![];
 
-        let records = iter_over_records_with_keys!(self, filter, since, until, txn, screen, &mut errors)
-            .map(|rw| rw.0)
-            .take(limit)
-            .collect();
+        let records =
+            iter_over_records_with_keys!(self, filter, since, until, txn, screen, &mut errors)
+                .map(|rw| rw.0)
+                .take(limit)
+                .collect();
 
         if let Some(e) = errors.pop() {
             return Err(e);
@@ -543,10 +589,11 @@ impl Store {
 
         let mut errors: Vec<Error> = vec![];
 
-        let records = iter_over_records_with_kinds!(self, filter, since, until, txn, screen, &mut errors)
-            .map(|rw| rw.0)
-            .take(limit)
-            .collect();
+        let records =
+            iter_over_records_with_kinds!(self, filter, since, until, txn, screen, &mut errors)
+                .map(|rw| rw.0)
+                .take(limit)
+                .collect();
 
         if let Some(e) = errors.pop() {
             return Err(e);
