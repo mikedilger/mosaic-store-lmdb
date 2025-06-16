@@ -4,11 +4,11 @@
 
 //! Defines a Store type for storing, indexing, and accessing mosaic records.
 //!
-//! Indexes point at offsets into a record map to avoid additional tree searches during lookups.
+//! Is rather simple and direct, and not yet implementing any code related to replacements
+//! or deletions.
 //!
-//! Tries to comply with as many mosaic spec requirements as possible that can be fully
-//! implemented at the storage layer.
-
+//! Achieves good performance by having the Indexes point at offsets into a record map
+//! rather than to an ID to avoid additional tree searches during lookups.
 #![deny(
     missing_debug_implementations,
     trivial_numeric_casts,
@@ -155,7 +155,9 @@ macro_rules! iter_over_records_with_tags {
     };
 }
 
-/// A Mosaic Record storage system
+/// A Mosaic Record storage system.
+///
+/// The core functionality includes `new()`, `store_record()` and `find_records()`
 #[derive(Debug)]
 pub struct Store {
     records: Records,
@@ -313,7 +315,9 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// If the filter has no narrow elements at all, this function Errs.
+    /// This function returns Err if the filter has no narrow elements at all, or if it
+    /// only has one and `allow_scraping` is false, or if there is a deeper error in
+    /// the storage mechanism. Some deeper errors are currently swallowed.
     pub fn find_records<F>(
         &self,
         filter: &Filter,
