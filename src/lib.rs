@@ -338,20 +338,30 @@ impl Store {
             .is_some();
         let has_kinds = filter.get_element(FilterElementType::KINDS).is_some();
 
+        let since = match filter.get_element(FilterElementType::SINCE) {
+            None => Timestamp::min(),
+            Some(fe) => fe.since()?.unwrap_or(Timestamp::min()),
+        };
+
+        let until = match filter.get_element(FilterElementType::UNTIL) {
+            None => Timestamp::max(),
+            Some(fe) => fe.until()?.unwrap_or(Timestamp::max()),
+        };
+
         if has_timestamps {
-            self.find_records_by_timestamps(filter, limit, screen)
+            self.find_records_by_timestamps(filter, since, until, limit, screen)
         } else if has_keys && has_tags {
-            self.find_records_by_keys_and_tags(filter, limit, screen)
+            self.find_records_by_keys_and_tags(filter, since, until, limit, screen)
         } else if has_tags && has_kinds {
-            self.find_records_by_tags_and_kinds(filter, limit, screen)
+            self.find_records_by_tags_and_kinds(filter, since, until, limit, screen)
         } else if has_keys && has_kinds {
-            self.find_records_by_keys_and_kinds(filter, limit, screen)
+            self.find_records_by_keys_and_kinds(filter, since, until, limit, screen)
         } else if allow_scraping && has_tags {
-            self.find_records_by_tags(filter, limit, screen)
+            self.find_records_by_tags(filter, since, until, limit, screen)
         } else if allow_scraping && has_keys {
-            self.find_records_by_keys(filter, limit, screen)
+            self.find_records_by_keys(filter, since, until, limit, screen)
         } else if allow_scraping && has_kinds {
-            self.find_records_by_kinds(filter, limit, screen)
+            self.find_records_by_kinds(filter, since, until, limit, screen)
         } else {
             Err(InnerError::FilterTooWide.into())
         }
@@ -360,6 +370,8 @@ impl Store {
     fn find_records_by_timestamps<F>(
         &self,
         _filter: &Filter,
+        _since: Timestamp,
+        _until: Timestamp,
         _limit: usize,
         _screen: F,
     ) -> Result<Vec<&Record>, Error>
@@ -372,6 +384,8 @@ impl Store {
     fn find_records_by_keys_and_tags<F>(
         &self,
         filter: &Filter,
+        since: Timestamp,
+        until: Timestamp,
         limit: usize,
         screen: F,
     ) -> Result<Vec<&Record>, Error>
@@ -379,16 +393,6 @@ impl Store {
         F: Fn(&Record) -> bool,
     {
         let txn = self.indexes.read_txn()?;
-
-        let since = match filter.get_element(FilterElementType::SINCE) {
-            None => Timestamp::min(),
-            Some(fe) => fe.since()?.unwrap_or(Timestamp::min()),
-        };
-
-        let until = match filter.get_element(FilterElementType::UNTIL) {
-            None => Timestamp::max(),
-            Some(fe) => fe.until()?.unwrap_or(Timestamp::max()),
-        };
 
         let mut errors: Vec<Error> = vec![];
 
@@ -411,6 +415,8 @@ impl Store {
     fn find_records_by_tags_and_kinds<F>(
         &self,
         filter: &Filter,
+        since: Timestamp,
+        until: Timestamp,
         limit: usize,
         screen: F,
     ) -> Result<Vec<&Record>, Error>
@@ -418,16 +424,6 @@ impl Store {
         F: Fn(&Record) -> bool,
     {
         let txn = self.indexes.read_txn()?;
-
-        let since = match filter.get_element(FilterElementType::SINCE) {
-            None => Timestamp::min(),
-            Some(fe) => fe.since()?.unwrap_or(Timestamp::min()),
-        };
-
-        let until = match filter.get_element(FilterElementType::UNTIL) {
-            None => Timestamp::max(),
-            Some(fe) => fe.until()?.unwrap_or(Timestamp::max()),
-        };
 
         let mut errors: Vec<Error> = vec![];
 
@@ -450,6 +446,8 @@ impl Store {
     fn find_records_by_keys_and_kinds<F>(
         &self,
         filter: &Filter,
+        since: Timestamp,
+        until: Timestamp,
         limit: usize,
         screen: F,
     ) -> Result<Vec<&Record>, Error>
@@ -457,16 +455,6 @@ impl Store {
         F: Fn(&Record) -> bool,
     {
         let txn = self.indexes.read_txn()?;
-
-        let since = match filter.get_element(FilterElementType::SINCE) {
-            None => Timestamp::min(),
-            Some(fe) => fe.since()?.unwrap_or(Timestamp::min()),
-        };
-
-        let until = match filter.get_element(FilterElementType::UNTIL) {
-            None => Timestamp::max(),
-            Some(fe) => fe.until()?.unwrap_or(Timestamp::max()),
-        };
 
         let mut errors: Vec<Error> = vec![];
 
@@ -489,6 +477,8 @@ impl Store {
     fn find_records_by_tags<F>(
         &self,
         filter: &Filter,
+        since: Timestamp,
+        until: Timestamp,
         limit: usize,
         screen: F,
     ) -> Result<Vec<&Record>, Error>
@@ -496,16 +486,6 @@ impl Store {
         F: Fn(&Record) -> bool,
     {
         let txn = self.indexes.read_txn()?;
-
-        let since = match filter.get_element(FilterElementType::SINCE) {
-            None => Timestamp::min(),
-            Some(fe) => fe.since()?.unwrap_or(Timestamp::min()),
-        };
-
-        let until = match filter.get_element(FilterElementType::UNTIL) {
-            None => Timestamp::max(),
-            Some(fe) => fe.until()?.unwrap_or(Timestamp::max()),
-        };
 
         let mut errors: Vec<Error> = vec![];
 
@@ -524,6 +504,8 @@ impl Store {
     fn find_records_by_keys<F>(
         &self,
         filter: &Filter,
+        since: Timestamp,
+        until: Timestamp,
         limit: usize,
         screen: F,
     ) -> Result<Vec<&Record>, Error>
@@ -531,16 +513,6 @@ impl Store {
         F: Fn(&Record) -> bool,
     {
         let txn = self.indexes.read_txn()?;
-
-        let since = match filter.get_element(FilterElementType::SINCE) {
-            None => Timestamp::min(),
-            Some(fe) => fe.since()?.unwrap_or(Timestamp::min()),
-        };
-
-        let until = match filter.get_element(FilterElementType::UNTIL) {
-            None => Timestamp::max(),
-            Some(fe) => fe.until()?.unwrap_or(Timestamp::max()),
-        };
 
         let mut errors: Vec<Error> = vec![];
 
@@ -559,6 +531,8 @@ impl Store {
     fn find_records_by_kinds<F>(
         &self,
         filter: &Filter,
+        since: Timestamp,
+        until: Timestamp,
         limit: usize,
         screen: F,
     ) -> Result<Vec<&Record>, Error>
@@ -566,16 +540,6 @@ impl Store {
         F: Fn(&Record) -> bool,
     {
         let txn = self.indexes.read_txn()?;
-
-        let since = match filter.get_element(FilterElementType::SINCE) {
-            None => Timestamp::min(),
-            Some(fe) => fe.since()?.unwrap_or(Timestamp::min()),
-        };
-
-        let until = match filter.get_element(FilterElementType::UNTIL) {
-            None => Timestamp::max(),
-            Some(fe) => fe.until()?.unwrap_or(Timestamp::max()),
-        };
 
         let mut errors: Vec<Error> = vec![];
 
