@@ -50,6 +50,111 @@ use std::cmp::Ordering;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+macro_rules! iter_over_records_with_keys {
+    ($self:ident, $filter:ident, $since:ident, $until:ident, $txn:ident, $screen:ident, $errors:expr) => {
+        $filter
+            .get_element(FilterElementType::AUTHOR_KEYS)
+            .unwrap_or_else(|| // &FilterElement
+                $filter
+                    .get_element(FilterElementType::SIGNING_KEYS)
+                    .unwrap())
+            .keys() // Option<FeKeysIter>
+            .unwrap() // FeKeysIter
+            .filter_map(|pubkey| {
+                // for each PublicKey
+                $self.indexes
+                    .iter_pubkey(&$txn, pubkey, $since, $until) // Result<RoRange<...>, Error>
+                    .map_err(|e| $errors.push(e)) // Result<RoRange<...>, ()>
+                    .ok() // Option<RoRange<...>>
+            }) // RoRange<...>
+            .map(|rorange| {
+                // FIXME, we should detect heed errors here.
+                rorange.take_while(|r| r.is_ok()).map(|r| r.unwrap())
+            })
+            .kmerge_by(|a, b| a.0.timestamp >= b.0.timestamp) // merge multiple sorted iterators into one sorted interator
+            .unique()
+            .filter_map(|(_, offset)| {
+                // FIXME, detect errors
+                let record = unsafe { $self.records.get_record_by_offset(offset as usize).unwrap() };
+
+                if $screen(record) && $filter.matches(record).unwrap() {
+                    Some(RecordWrapper(record))
+                } else {
+                    None
+                }
+            })
+            .assume_sorted_by_item()
+    };
+}
+
+macro_rules! iter_over_records_with_kinds {
+    ($self:ident, $filter:ident, $since:ident, $until:ident, $txn:ident, $screen:ident, $errors:expr) => {
+        $filter
+            .get_element(FilterElementType::KINDS) // Option<&FilterElement>
+            .unwrap() // &FilterElement
+            .kinds() // Option<FeKindsIter>
+            .unwrap() // FeKindsIter
+            .filter_map(|kind| {
+                // for each Kind
+                $self.indexes
+                    .iter_kind(&$txn, kind, $since, $until) // Result<RoRange<...>, Error>
+                    .map_err(|e| $errors.push(e)) // Result<RoRange<...>, ()>
+                    .ok() // Option<RoRange<...>>
+            }) // RoRange<...>
+            .map(|rorange| {
+                // FIXME, we should detect heed errors here.
+                rorange.take_while(|r| r.is_ok()).map(|r| r.unwrap())
+            })
+            .kmerge_by(|a, b| a.0.timestamp >= b.0.timestamp) // merge multiple sorted iterators into one sorted interator
+            .unique()
+            .filter_map(|(_, offset)| {
+                // FIXME, detect errors
+                let record = unsafe { $self.records.get_record_by_offset(offset as usize).unwrap() };
+
+                if $screen(record) && $filter.matches(record).unwrap() {
+                    Some(RecordWrapper(record))
+                } else {
+                    None
+                }
+            })
+            .assume_sorted_by_item()
+    };
+}
+
+macro_rules! iter_over_records_with_tags {
+    ($self:ident, $filter:ident, $since:ident, $until:ident, $txn:ident, $screen:ident, $errors:expr) => {
+        $filter
+            .get_element(FilterElementType::INCLUDED_TAGS)
+            .unwrap() // &FilterElement
+            .tags() // Option<FeTagsIter>
+            .unwrap() // FeTagsIter
+            .filter_map(|tag| {
+                // for each Tag
+                $self.indexes
+                    .iter_tag(&$txn, tag, $since, $until) // Result<RoRange<...>, Error>
+                    .map_err(|e| $errors.push(e)) // Result<RoRange<...>, ()>
+                    .ok() // Option<RoRange<...>>
+            }) // RoRange<...>
+            .map(|rorange| {
+                // FIXME, we should detect heed errors here.
+                rorange.take_while(|r| r.is_ok()).map(|r| r.unwrap())
+            })
+            .kmerge_by(|a, b| a.0.timestamp >= b.0.timestamp) // merge multiple sorted iterators into one sorted interator
+            .unique()
+            .filter_map(|(_, offset)| {
+                // FIXME, detect errors
+                let record = unsafe { $self.records.get_record_by_offset(offset as usize).unwrap() };
+
+                if $screen(record) && $filter.matches(record).unwrap() {
+                    Some(RecordWrapper(record))
+                } else {
+                    None
+                }
+            })
+            .assume_sorted_by_item()
+    };
+}
+
 /// A Mosaic Record storage system
 #[derive(Debug)]
 pub struct Store {
@@ -299,65 +404,8 @@ impl Store {
 
         let mut errors: Vec<Error> = vec![];
 
-        let by_tags = filter
-            .get_element(FilterElementType::INCLUDED_TAGS)
-            .unwrap() // &FilterElement
-            .tags() // Option<FeTagsIter>
-            .unwrap() // FeTagsIter
-            .filter_map(|tag| {
-                // for each Tag
-                self.indexes
-                    .iter_tag(&txn, tag, since, until) // Result<RoRange<...>, Error>
-                    .map_err(|e| errors.push(e)) // Result<RoRange<...>, ()>
-                    .ok() // Option<RoRange<...>>
-            }) // RoRange<...>
-            .map(|rorange| {
-                // FIXME, we should detect heed errors here.
-                rorange.take_while(|r| r.is_ok()).map(|r| r.unwrap())
-            })
-            .kmerge_by(|a, b| a.0.timestamp >= b.0.timestamp) // merge multiple sorted iterators into one sorted interator
-            .unique()
-            .filter_map(|(_, offset)| {
-                // FIXME, detect errors
-                let record = unsafe { self.records.get_record_by_offset(offset as usize).unwrap() };
-
-                if screen(record) && filter.matches(record).unwrap() {
-                    Some(RecordWrapper(record))
-                } else {
-                    None
-                }
-            })
-            .assume_sorted_by_item();
-
-        let by_kinds = filter
-            .get_element(FilterElementType::KINDS) // Option<&FilterElement>
-            .unwrap() // &FilterElement
-            .kinds() // Option<FeKindsIter>
-            .unwrap() // FeKindsIter
-            .filter_map(|kind| {
-                // for each Kind
-                self.indexes
-                    .iter_kind(&txn, kind, since, until) // Result<RoRange<...>, Error>
-                    .map_err(|e| errors.push(e)) // Result<RoRange<...>, ()>
-                    .ok() // Option<RoRange<...>>
-            }) // RoRange<...>
-            .map(|rorange| {
-                // FIXME, we should detect heed errors here.
-                rorange.take_while(|r| r.is_ok()).map(|r| r.unwrap())
-            })
-            .kmerge_by(|a, b| a.0.timestamp >= b.0.timestamp) // merge multiple sorted iterators into one sorted interator
-            .unique()
-            .filter_map(|(_, offset)| {
-                // FIXME, detect errors
-                let record = unsafe { self.records.get_record_by_offset(offset as usize).unwrap() };
-
-                if screen(record) && filter.matches(record).unwrap() {
-                    Some(RecordWrapper(record))
-                } else {
-                    None
-                }
-            })
-            .assume_sorted_by_item();
+        let by_tags = iter_over_records_with_tags!(self, filter, since, until, txn, screen, &mut errors);
+        let by_kinds = iter_over_records_with_kinds!(self, filter, since, until, txn, screen, &mut errors);
 
         let records = by_tags
             .intersection(by_kinds)
@@ -395,68 +443,8 @@ impl Store {
 
         let mut errors: Vec<Error> = vec![];
 
-        let by_keys = filter
-            .get_element(FilterElementType::AUTHOR_KEYS)
-            .unwrap_or_else(|| // &FilterElement
-                filter
-                    .get_element(FilterElementType::SIGNING_KEYS)
-                    .unwrap())
-            .keys() // Option<FeKeysIter>
-            .unwrap() // FeKeysIter
-            .filter_map(|pubkey| {
-                // for each PublicKey
-                self.indexes
-                    .iter_pubkey(&txn, pubkey, since, until) // Result<RoRange<...>, Error>
-                    .map_err(|e| errors.push(e)) // Result<RoRange<...>, ()>
-                    .ok() // Option<RoRange<...>>
-            }) // RoRange<...>
-            .map(|rorange| {
-                // FIXME, we should detect heed errors here.
-                rorange.take_while(|r| r.is_ok()).map(|r| r.unwrap())
-            })
-            .kmerge_by(|a, b| a.0.timestamp >= b.0.timestamp) // merge multiple sorted iterators into one sorted interator
-            .unique()
-            .filter_map(|(_, offset)| {
-                // FIXME, detect errors
-                let record = unsafe { self.records.get_record_by_offset(offset as usize).unwrap() };
-
-                if screen(record) && filter.matches(record).unwrap() {
-                    Some(RecordWrapper(record))
-                } else {
-                    None
-                }
-            })
-            .assume_sorted_by_item();
-
-        let by_kinds = filter
-            .get_element(FilterElementType::KINDS) // Option<&FilterElement>
-            .unwrap() // &FilterElement
-            .kinds() // Option<FeKindsIter>
-            .unwrap() // FeKindsIter
-            .filter_map(|kind| {
-                // for each Kind
-                self.indexes
-                    .iter_kind(&txn, kind, since, until) // Result<RoRange<...>, Error>
-                    .map_err(|e| errors.push(e)) // Result<RoRange<...>, ()>
-                    .ok() // Option<RoRange<...>>
-            }) // RoRange<...>
-            .map(|rorange| {
-                // FIXME, we should detect heed errors here.
-                rorange.take_while(|r| r.is_ok()).map(|r| r.unwrap())
-            })
-            .kmerge_by(|a, b| a.0.timestamp >= b.0.timestamp) // merge multiple sorted iterators into one sorted interator
-            .unique()
-            .filter_map(|(_, offset)| {
-                // FIXME, detect errors
-                let record = unsafe { self.records.get_record_by_offset(offset as usize).unwrap() };
-
-                if screen(record) && filter.matches(record).unwrap() {
-                    Some(RecordWrapper(record))
-                } else {
-                    None
-                }
-            })
-            .assume_sorted_by_item();
+        let by_keys = iter_over_records_with_keys!(self, filter, since, until, txn, screen, &mut errors);
+        let by_kinds = iter_over_records_with_kinds!(self, filter, since, until, txn, screen, &mut errors);
 
         let records = by_keys
             .intersection(by_kinds)
@@ -494,34 +482,8 @@ impl Store {
 
         let mut errors: Vec<Error> = vec![];
 
-        let records = filter
-            .get_element(FilterElementType::INCLUDED_TAGS)
-            .unwrap() // &FilterElement
-            .tags() // Option<FeTagsIter>
-            .unwrap() // FeTagsIter
-            .filter_map(|tag| {
-                // for each Tag
-                self.indexes
-                    .iter_tag(&txn, tag, since, until) // Result<RoRange<...>, Error>
-                    .map_err(|e| errors.push(e)) // Result<RoRange<...>, ()>
-                    .ok() // Option<RoRange<...>>
-            }) // RoRange<...>
-            .map(|rorange| {
-                // FIXME, we should detect heed errors here.
-                rorange.take_while(|r| r.is_ok()).map(|r| r.unwrap())
-            })
-            .kmerge_by(|a, b| a.0.timestamp >= b.0.timestamp) // merge multiple sorted iterators into one sorted interator
-            .unique()
-            .filter_map(|(_, offset)| {
-                // FIXME, detect errors
-                let record = unsafe { self.records.get_record_by_offset(offset as usize).unwrap() };
-
-                if screen(record) && filter.matches(record).unwrap() {
-                    Some(record)
-                } else {
-                    None
-                }
-            })
+        let records = iter_over_records_with_tags!(self, filter, since, until, txn, screen, &mut errors)
+            .map(|rw| rw.0)
             .take(limit)
             .collect();
 
@@ -555,37 +517,8 @@ impl Store {
 
         let mut errors: Vec<Error> = vec![];
 
-        let records = filter
-            .get_element(FilterElementType::AUTHOR_KEYS)
-            .unwrap_or_else(|| // &FilterElement
-                filter
-                    .get_element(FilterElementType::SIGNING_KEYS)
-                    .unwrap())
-            .keys() // Option<FeKeysIter>
-            .unwrap() // FeKeysIter
-            .filter_map(|pubkey| {
-                // for each PublicKey
-                self.indexes
-                    .iter_pubkey(&txn, pubkey, since, until) // Result<RoRange<...>, Error>
-                    .map_err(|e| errors.push(e)) // Result<RoRange<...>, ()>
-                    .ok() // Option<RoRange<...>>
-            }) // RoRange<...>
-            .map(|rorange| {
-                // FIXME, we should detect heed errors here.
-                rorange.take_while(|r| r.is_ok()).map(|r| r.unwrap())
-            })
-            .kmerge_by(|a, b| a.0.timestamp >= b.0.timestamp) // merge multiple sorted iterators into one sorted interator
-            .unique()
-            .filter_map(|(_, offset)| {
-                // FIXME, detect errors
-                let record = unsafe { self.records.get_record_by_offset(offset as usize).unwrap() };
-
-                if screen(record) && filter.matches(record).unwrap() {
-                    Some(record)
-                } else {
-                    None
-                }
-            })
+        let records = iter_over_records_with_keys!(self, filter, since, until, txn, screen, &mut errors)
+            .map(|rw| rw.0)
             .take(limit)
             .collect();
 
@@ -619,34 +552,8 @@ impl Store {
 
         let mut errors: Vec<Error> = vec![];
 
-        let records = filter
-            .get_element(FilterElementType::KINDS) // Option<&FilterElement>
-            .unwrap() // &FilterElement
-            .kinds() // Option<FeKindsIter>
-            .unwrap() // FeKindsIter
-            .filter_map(|kind| {
-                // for each Kind
-                self.indexes
-                    .iter_kind(&txn, kind, since, until) // Result<RoRange<...>, Error>
-                    .map_err(|e| errors.push(e)) // Result<RoRange<...>, ()>
-                    .ok() // Option<RoRange<...>>
-            }) // RoRange<...>
-            .map(|rorange| {
-                // FIXME, we should detect heed errors here.
-                rorange.take_while(|r| r.is_ok()).map(|r| r.unwrap())
-            })
-            .kmerge_by(|a, b| a.0.timestamp >= b.0.timestamp) // merge multiple sorted iterators into one sorted interator
-            .unique()
-            .filter_map(|(_, offset)| {
-                // FIXME, detect errors
-                let record = unsafe { self.records.get_record_by_offset(offset as usize).unwrap() };
-
-                if screen(record) && filter.matches(record).unwrap() {
-                    Some(record)
-                } else {
-                    None
-                }
-            })
+        let records = iter_over_records_with_kinds!(self, filter, since, until, txn, screen, &mut errors)
+            .map(|rw| rw.0)
             .take(limit)
             .collect();
 
