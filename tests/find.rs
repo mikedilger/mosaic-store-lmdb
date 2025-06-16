@@ -1,7 +1,7 @@
 use lazy_static::lazy_static;
 use mosaic_core::{
     EMPTY_TAG_SET, Kind, OwnedFilter, OwnedFilterElement, OwnedRecord, OwnedTag, OwnedTagSet,
-    PublicKey, Record, RecordFlags, RecordParts, SecretKey, Tag, TagType, Timestamp,
+    PublicKey, Record, RecordFlags, RecordParts, SecretKey, TagType, Timestamp,
 };
 use mosaic_store_lmdb::Store;
 use rand::prelude::SliceRandom;
@@ -12,7 +12,6 @@ struct Data {
     kinds: Vec<Kind>,
     timestamps: Vec<Timestamp>,
     tags: Vec<OwnedTag>,
-    records: Vec<OwnedRecord>,
     store: Store,
 }
 
@@ -97,7 +96,6 @@ lazy_static! {
             kinds,
             timestamps,
             tags,
-            records,
             store,
         }
     };
