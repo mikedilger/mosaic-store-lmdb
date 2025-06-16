@@ -66,11 +66,13 @@ lazy_static! {
         for secret_key_index in 0..secret_keys.len() {
             for kind_index in 0..kinds.len() {
                 for timestamp_index in 0..timestamps.len() {
-                    for tag_index in 0..tags.len()-1 {
+                    for tag_index in 0..tags.len() - 1 {
                         let mut parts = parts.clone();
                         parts.kind = kinds[kind_index];
                         parts.timestamp = timestamps[timestamp_index];
-                        let tagset = OwnedTagSet::from_tags(tags.iter().map(|t| &**t).skip(tag_index).take(2));
+                        let tagset = OwnedTagSet::from_tags(
+                            tags.iter().map(|t| &**t).skip(tag_index).take(2),
+                        );
                         parts.tag_set = &tagset;
                         let r = OwnedRecord::new(&secret_keys[secret_key_index], &parts).unwrap();
                         records.push(r);
@@ -117,9 +119,9 @@ fn verify_find_output(
     // Make sure we get no records with the forbidden data
     assert_eq!(
         found_records.iter().any(|r| {
-            missing_pubkeys.contains(&r.author_public_key()) ||
-                missing_kinds.contains(&r.kind()) ||
-                missing_timestamps.contains(&r.timestamp())
+            missing_pubkeys.contains(&r.author_public_key())
+                || missing_kinds.contains(&r.kind())
+                || missing_timestamps.contains(&r.timestamp())
         }),
         false
     );
@@ -130,7 +132,6 @@ fn verify_find_output(
     v1.dedup();
     assert_eq!(v1, v2);
 }
-
 
 #[test]
 fn test_find_by_kind() {
@@ -144,7 +145,10 @@ fn test_find_by_kind() {
     ])
     .unwrap();
 
-    let found_records = DATA.store.find_records(&filter, 300, |_| true, true).unwrap();
+    let found_records = DATA
+        .store
+        .find_records(&filter, 300, |_| true, true)
+        .unwrap();
 
     verify_find_output(
         found_records.as_slice(),
@@ -154,7 +158,6 @@ fn test_find_by_kind() {
         &[DATA.timestamps[0], DATA.timestamps[7]],
     );
 }
-
 
 #[test]
 fn test_find_by_pubkey() {
@@ -172,7 +175,10 @@ fn test_find_by_pubkey() {
     ])
     .unwrap();
 
-    let found_records = DATA.store.find_records(&filter, 300, |_| true, true).unwrap();
+    let found_records = DATA
+        .store
+        .find_records(&filter, 300, |_| true, true)
+        .unwrap();
 
     verify_find_output(
         found_records.as_slice(),
@@ -186,7 +192,7 @@ fn test_find_by_pubkey() {
 #[test]
 fn test_find_by_tag() {
     let elements = vec![
-        // All but tags[1]
+        // Only tag 3
         OwnedFilterElement::new_included_tags(&[&DATA.tags[3]]).unwrap(),
         // All but first timestamp
         OwnedFilterElement::new_since(DATA.timestamps[1]),
@@ -196,7 +202,10 @@ fn test_find_by_tag() {
 
     let filter = OwnedFilter::new(&*elements).unwrap();
 
-    let found_records = DATA.store.find_records(&filter, 100, |_| true, true).unwrap();
+    let found_records = DATA
+        .store
+        .find_records(&filter, 100, |_| true, true)
+        .unwrap();
 
     verify_find_output(
         found_records.as_slice(),
@@ -209,7 +218,9 @@ fn test_find_by_tag() {
     // Make sure we get no records that include tag 0 or tag 1
     assert_eq!(
         found_records.iter().any(|r| {
-            r.tag_set().iter().any(|t| *t == *DATA.tags[0] || *t == *DATA.tags[1])
+            r.tag_set()
+                .iter()
+                .any(|t| *t == *DATA.tags[0] || *t == *DATA.tags[1])
         }),
         false
     );
@@ -232,12 +243,10 @@ fn test_find_by_keys_and_kind() {
     ])
     .unwrap();
 
-    let found_records = DATA.store.find_records(&filter, 300, |_| true, true).unwrap();
-
-    // We got 177, not the expected 90.  Now 4 or 5 or 2 (not uniform!).
-    // Also the output was not sorted
-    // BUT the missing fields were not there (good)
-    // AND the records were unique (good)
+    let found_records = DATA
+        .store
+        .find_records(&filter, 300, |_| true, true)
+        .unwrap();
 
     verify_find_output(
         found_records.as_slice(),
@@ -248,3 +257,41 @@ fn test_find_by_keys_and_kind() {
     );
 }
 
+#[test]
+fn test_find_by_tags_and_kind() {
+    let elements = vec![
+        // Only tag 3
+        OwnedFilterElement::new_included_tags(&[&DATA.tags[3]]).unwrap(),
+        // 3 kinds
+        OwnedFilterElement::new_kinds(&[DATA.kinds[0], DATA.kinds[2], DATA.kinds[3]]).unwrap(),
+        // All but first timestamp
+        OwnedFilterElement::new_since(DATA.timestamps[1]),
+        // All but last timestamp
+        OwnedFilterElement::new_until(DATA.timestamps[5]),
+    ];
+
+    let filter = OwnedFilter::new(&*elements).unwrap();
+
+    let found_records = DATA
+        .store
+        .find_records(&filter, 300, |_| true, true)
+        .unwrap();
+
+    verify_find_output(
+        found_records.as_slice(),
+        4 * 3 * 5 * 1, // 4 keys, 3 kinds, 5 timestamps, 1 tag
+        &[],
+        &[DATA.kinds[1]],
+        &[DATA.timestamps[0], DATA.timestamps[6], DATA.timestamps[7]],
+    );
+
+    // Make sure we get no records that include tag 0 or tag 1 (tag2 and tag3 sometimes go together)
+    assert_eq!(
+        found_records.iter().any(|r| {
+            r.tag_set()
+                .iter()
+                .any(|t| *t == *DATA.tags[0] || *t == *DATA.tags[1])
+        }),
+        false
+    );
+}
