@@ -134,7 +134,7 @@ fn verify_find_output(
 }
 
 #[test]
-fn test_find_by_kind() {
+fn test_find_by_kinds() {
     let filter = OwnedFilter::new(&[
         // All but Kind[1]
         &OwnedFilterElement::new_kinds(&[DATA.kinds[0], DATA.kinds[2], DATA.kinds[3]]).unwrap(),
@@ -160,7 +160,7 @@ fn test_find_by_kind() {
 }
 
 #[test]
-fn test_find_by_pubkey() {
+fn test_find_by_keys() {
     let filter = OwnedFilter::new(&[
         // All but secret_keys[1] and secret_keys[3]
         &OwnedFilterElement::new_author_keys(&[
@@ -190,7 +190,7 @@ fn test_find_by_pubkey() {
 }
 
 #[test]
-fn test_find_by_tag() {
+fn test_find_by_tags() {
     let elements = vec![
         // Only tag 3
         OwnedFilterElement::new_included_tags(&[&DATA.tags[3]]).unwrap(),
@@ -227,7 +227,7 @@ fn test_find_by_tag() {
 }
 
 #[test]
-fn test_find_by_keys_and_kind() {
+fn test_find_by_keys_and_kinds() {
     let filter = OwnedFilter::new(&[
         // 2 secret keys
         &OwnedFilterElement::new_author_keys(&[
@@ -258,7 +258,7 @@ fn test_find_by_keys_and_kind() {
 }
 
 #[test]
-fn test_find_by_tags_and_kind() {
+fn test_find_by_tags_and_kinds() {
     let elements = vec![
         // Only tag 3
         OwnedFilterElement::new_included_tags(&[&DATA.tags[3]]).unwrap(),
@@ -282,6 +282,49 @@ fn test_find_by_tags_and_kind() {
         4 * 3 * 5 * 1, // 4 keys, 3 kinds, 5 timestamps, 1 tag
         &[],
         &[DATA.kinds[1]],
+        &[DATA.timestamps[0], DATA.timestamps[6], DATA.timestamps[7]],
+    );
+
+    // Make sure we get no records that include tag 0 or tag 1 (tag2 and tag3 sometimes go together)
+    assert_eq!(
+        found_records.iter().any(|r| {
+            r.tag_set()
+                .iter()
+                .any(|t| *t == *DATA.tags[0] || *t == *DATA.tags[1])
+        }),
+        false
+    );
+}
+
+#[test]
+fn test_find_by_keys_and_tags() {
+    let elements = vec![
+        // 2 secret keys
+        OwnedFilterElement::new_author_keys(&[
+            DATA.secret_keys[0].public(),
+            DATA.secret_keys[2].public(),
+        ])
+        .unwrap(),
+        // Only tag 3
+        OwnedFilterElement::new_included_tags(&[&DATA.tags[3]]).unwrap(),
+        // All but first timestamp
+        OwnedFilterElement::new_since(DATA.timestamps[1]),
+        // All but last timestamp
+        OwnedFilterElement::new_until(DATA.timestamps[5]),
+    ];
+
+    let filter = OwnedFilter::new(&*elements).unwrap();
+
+    let found_records = DATA
+        .store
+        .find_records(&filter, 300, |_| true, true)
+        .unwrap();
+
+    verify_find_output(
+        found_records.as_slice(),
+        2 * 4 * 5 * 1, // 2 keys, 4 kinds, 5 timestamps, 1 tag
+        &[DATA.secret_keys[1].public(), DATA.secret_keys[3].public()],
+        &[],
         &[DATA.timestamps[0], DATA.timestamps[6], DATA.timestamps[7]],
     );
 

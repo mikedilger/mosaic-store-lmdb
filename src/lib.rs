@@ -371,14 +371,41 @@ impl Store {
 
     fn find_records_by_keys_and_tags<F>(
         &self,
-        _filter: &Filter,
-        _limit: usize,
-        _screen: F,
+        filter: &Filter,
+        limit: usize,
+        screen: F,
     ) -> Result<Vec<&Record>, Error>
     where
         F: Fn(&Record) -> bool,
     {
-        unimplemented!()
+        let txn = self.indexes.read_txn()?;
+
+        let since = match filter.get_element(FilterElementType::SINCE) {
+            None => Timestamp::min(),
+            Some(fe) => fe.since()?.unwrap_or(Timestamp::min()),
+        };
+
+        let until = match filter.get_element(FilterElementType::UNTIL) {
+            None => Timestamp::max(),
+            Some(fe) => fe.until()?.unwrap_or(Timestamp::max()),
+        };
+
+        let mut errors: Vec<Error> = vec![];
+
+        let by_keys = iter_over_records_with_keys!(self, filter, since, until, txn, screen, &mut errors);
+        let by_tags = iter_over_records_with_tags!(self, filter, since, until, txn, screen, &mut errors);
+
+        let records = by_keys
+            .intersection(by_tags)
+            .map(|rw| rw.0)
+            .take(limit)
+            .collect();
+
+        if let Some(e) = errors.pop() {
+            return Err(e);
+        }
+
+        Ok(records)
     }
 
     fn find_records_by_tags_and_kinds<F>(
