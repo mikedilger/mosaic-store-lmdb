@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 mod keys;
+use keys::PREFIX_LEN;
 pub(crate) use keys::{KindRevstamp, KindRevstampCodec};
 pub(crate) use keys::{PrefixRevstamp, PrefixRevstampCodec};
 
@@ -20,23 +21,23 @@ pub(crate) use keys::{PrefixRevstamp, PrefixRevstampCodec};
  *                                    USE: looking up by Address
  *                                    USE: filter has a timestamp (because ID starts w/ timestamp)
  *
- *    [pubkey + rts]                  pubkey = 12 bytes of key prefix
+ *    [pubkey + rts]                  pubkey = 22 bytes of key prefix
  *                                    rts = 8 bytes of reverse big-endian timestamp
  *
  *    [kind + rts]                    kind = 8 bytes
  *                                    rts = 8 bytes of reverse big-endian timestamp
  *
- *    [tagprefix + rts]               tagprefix = 12 bytes of tag prefix
+ *    [tagprefix + rts]               tagprefix = 22 bytes of tag prefix (incl type, not len)
  *                                    rts = 8 bytes of reverse big-endian timestamp
  *
- * Space used per event:   138 + 84T
+ * Space used per event:   212 + 38T
  *
  *     index by id:    key=48, value=8    perevent=1   56 bytes
  *     index by addr:  key=48, value=8    perevent=1   56 bytes
- *     author:         key=20, value=8    perevent=T   28 bytes * T
- *     signing:        key=20, value=8    perevent=T   28 bytes * T  [unless same as author]
+ *     author:         key=30, value=8    perevent=T   38 bytes
+ *     signing:        key=30, value=8    perevent=T   38 bytes
  *     kind:           key=16, value=8    perevent=1   24 bytes
- *     tag:            key=20, value=8    perevent=T   28 bytes * T
+ *     tag:            key=30, value=8    perevent=T   38 bytes * T
  */
 
 /// Indexes
@@ -53,7 +54,7 @@ pub(crate) use keys::{PrefixRevstamp, PrefixRevstampCodec};
 /// Note that every index key ends in the timestamp.  This is so we can quickly further filter
 /// within a time range (since, until).
 ///
-/// Note that we don't use the full public key or full tags, but just the first 12 bytes.
+/// Note that we don't use the full public key or full tags, but just the first bytes.
 /// DUP_SORT avoids collisions, but we may look up more than we were seeking. That is OK as long
 /// as every lookup is followed by a check against the entire filter to remove false positives.
 #[derive(Debug)]
@@ -182,7 +183,7 @@ impl Indexes {
 
         // Index by author key
         let mut prts = PrefixRevstamp {
-            prefix: record.author_public_key().as_bytes()[..12]
+            prefix: record.author_public_key().as_bytes()[..PREFIX_LEN]
                 .try_into()
                 .unwrap(),
             timestamp: record.timestamp(),
@@ -220,7 +221,7 @@ impl Indexes {
         leave_in_ref_index_by_id: bool,
     ) -> Result<(), Error> {
         let mut prts = PrefixRevstamp {
-            prefix: [0; 12],
+            prefix: [0; PREFIX_LEN],
             timestamp: record.timestamp(),
         };
 
@@ -315,7 +316,7 @@ impl Indexes {
         since: Timestamp,
         until: Timestamp,
     ) -> Result<RoRange<'a, PrefixRevstampCodec, U64<NativeEndian>>, Error> {
-        let prefix: [u8; 12] = pubkey.as_bytes()[..12].try_into().unwrap();
+        let prefix: [u8; PREFIX_LEN] = pubkey.as_bytes()[..PREFIX_LEN].try_into().unwrap();
 
         let start = PrefixRevstamp {
             prefix,

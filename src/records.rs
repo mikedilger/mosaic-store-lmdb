@@ -80,7 +80,7 @@ impl Records {
         if offset >= self.read_map_end() {
             return Err(InnerError::EndOfInput.into());
         }
-        let record = unsafe { Record::from_bytes(&self.map[offset..])? };
+        let record = Record::from_bytes(&self.map[offset..])?;
         Ok(record)
     }
 
