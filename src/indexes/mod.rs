@@ -158,12 +158,12 @@ impl Indexes {
     }
 
     /// Get a read transaction
-    pub(crate) fn read_txn(&self) -> Result<RoTxn<WithoutTls>, Error> {
+    pub(crate) fn read_txn(&self) -> Result<RoTxn<'_, WithoutTls>, Error> {
         Ok(self.env.read_txn()?)
     }
 
     /// Get a write transaction
-    pub(crate) fn write_txn(&self) -> Result<RwTxn, Error> {
+    pub(crate) fn write_txn(&self) -> Result<RwTxn<'_>, Error> {
         Ok(self.env.write_txn()?)
     }
 
