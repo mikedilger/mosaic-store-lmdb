@@ -2,8 +2,8 @@ use crate::Error;
 use heed::byteorder::NativeEndian;
 use heed::types::{Bytes, U64};
 use heed::{
-    Database, DatabaseFlags, Env, EnvFlags, EnvOpenOptions, RoPrefix, RoRange, RoTxn,
-    RwTxn, WithoutTls,
+    Database, DatabaseFlags, Env, EnvFlags, EnvOpenOptions, RoPrefix, RoRange, RoTxn, RwTxn,
+    WithoutTls,
 };
 use mosaic_core::{Kind, PublicKey, Record, Reference, Tag, Timestamp};
 use std::collections::HashMap;
@@ -268,7 +268,7 @@ impl Indexes {
         Ok(())
     }
 
-    /// Deindex an Id from the ref_index
+    // Deindex an Id from the ref_index
     // We will define once we need it
     // pub(crate) fn deindex_id(&self, txn: &mut RwTxn<'_>, id: Id) -> Result<(), Error> {
     //   let _ = self.ref_index.delete(txn, id.as_bytes())?;
@@ -289,7 +289,7 @@ impl Indexes {
         self.extra_tables.get(name).copied()
     }
 
-    /// Iterate through ref_index
+    // Iterate through ref_index
     // we will define once we need it
     // pub(crate) fn iter_refs<'a>(
     //   &'a self,

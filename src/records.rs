@@ -190,9 +190,9 @@ impl<'a> Iterator for RecordsIter<'a> {
 mod tests {
     use super::*;
     use mosaic_core::{
-        EMPTY_TAG_SET, Kind, OwnedRecord, RecordFlags, RecordParts, SecretKey, Timestamp,
+        EMPTY_TAG_SET, Kind, OwnedRecord, RecordAddressData, RecordFlags, RecordParts,
+        RecordSigningData, SecretKey, Timestamp,
     };
-    use rand::rngs::OsRng;
 
     #[test]
     fn test_records() {
@@ -202,35 +202,29 @@ mod tests {
 
         println!("Records has {} used bytes", store.read_map_end());
 
-        let mut csprng = OsRng;
-        let secret_key = SecretKey::generate(&mut csprng);
+        let secret_key = SecretKey::generate();
+        let public_key = secret_key.public();
 
-        let record1 = OwnedRecord::new(
-            &secret_key,
-            &RecordParts {
-                kind: Kind::MICROBLOG_ROOT,
-                deterministic_nonce: None,
-                timestamp: Timestamp::now().unwrap(),
-                flags: RecordFlags::empty(),
-                tag_set: &*EMPTY_TAG_SET,
-                payload: b"Hello World!",
-            },
-        )
+        let record1 = OwnedRecord::new(&RecordParts {
+            signing_data: RecordSigningData::SecretKey(secret_key.clone()),
+            address_data: RecordAddressData::Random(public_key, Kind::MICROBLOG_ROOT),
+            timestamp: Timestamp::now().unwrap(),
+            flags: RecordFlags::empty(),
+            tag_set: &*EMPTY_TAG_SET,
+            payload: b"Hello World!",
+        })
         .unwrap();
         let offset1 = store.store_record(&record1).unwrap();
         println!("Record 1 at offset {offset1}");
 
-        let record2 = OwnedRecord::new(
-            &secret_key,
-            &RecordParts {
-                kind: Kind::MICROBLOG_ROOT,
-                deterministic_nonce: None,
-                timestamp: Timestamp::now().unwrap(),
-                flags: RecordFlags::empty(),
-                tag_set: &*EMPTY_TAG_SET,
-                payload: b"Goodbye World!",
-            },
-        )
+        let record2 = OwnedRecord::new(&RecordParts {
+            signing_data: RecordSigningData::SecretKey(secret_key.clone()),
+            address_data: RecordAddressData::Random(public_key, Kind::MICROBLOG_ROOT),
+            timestamp: Timestamp::now().unwrap(),
+            flags: RecordFlags::empty(),
+            tag_set: &*EMPTY_TAG_SET,
+            payload: b"Goodbye World!",
+        })
         .unwrap();
         let offset2 = store.store_record(&record2).unwrap();
         println!("Record 2 at offset {offset2}");

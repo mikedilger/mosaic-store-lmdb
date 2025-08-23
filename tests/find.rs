@@ -1,11 +1,11 @@
 use lazy_static::lazy_static;
 use mosaic_core::{
     EMPTY_TAG_SET, Kind, OwnedFilter, OwnedFilterElement, OwnedRecord, OwnedTag, OwnedTagSet,
-    PublicKey, Record, RecordFlags, RecordParts, SecretKey, TagType, Timestamp,
+    PublicKey, Record, RecordAddressData, RecordFlags, RecordParts, RecordSigningData, SecretKey,
+    TagType, Timestamp,
 };
 use mosaic_store_lmdb::Store;
 use rand::prelude::SliceRandom;
-use rand::rngs::OsRng;
 
 struct Data {
     secret_keys: Vec<SecretKey>,
@@ -17,13 +17,11 @@ struct Data {
 
 lazy_static! {
     static ref DATA: Data = {
-        let mut csprng = OsRng;
-
         let secret_keys = vec![
-            SecretKey::generate(&mut csprng),
-            SecretKey::generate(&mut csprng),
-            SecretKey::generate(&mut csprng),
-            SecretKey::generate(&mut csprng),
+            SecretKey::generate(),
+            SecretKey::generate(),
+            SecretKey::generate(),
+            SecretKey::generate(),
         ];
 
         let kinds = vec![
@@ -54,8 +52,8 @@ lazy_static! {
         let mut records: Vec<OwnedRecord> = vec![];
 
         let parts = RecordParts {
-            kind: kinds[0],
-            deterministic_nonce: None,
+            signing_data: RecordSigningData::SecretKey(secret_keys[0].clone()),
+            address_data: RecordAddressData::Random(secret_keys[0].public(), kinds[0]),
             timestamp: timestamps[0],
             flags: RecordFlags::empty(),
             tag_set: &*EMPTY_TAG_SET,
@@ -67,20 +65,27 @@ lazy_static! {
                 for timestamp_index in 0..timestamps.len() {
                     for tag_index in 0..tags.len() - 1 {
                         let mut parts = parts.clone();
-                        parts.kind = kinds[kind_index];
+
+                        parts.signing_data =
+                            RecordSigningData::SecretKey(secret_keys[secret_key_index].clone());
+                        parts.address_data = RecordAddressData::Random(
+                            secret_keys[secret_key_index].public(),
+                            kinds[kind_index],
+                        );
                         parts.timestamp = timestamps[timestamp_index];
                         let tagset = OwnedTagSet::from_tags(
                             tags.iter().map(|t| &**t).skip(tag_index).take(2),
                         );
                         parts.tag_set = &tagset;
-                        let r = OwnedRecord::new(&secret_keys[secret_key_index], &parts).unwrap();
+                        let r = OwnedRecord::new(&parts).unwrap();
                         records.push(r);
                     }
                 }
             }
         }
 
-        records.shuffle(&mut csprng);
+        let mut rng = rand::rng();
+        records.shuffle(&mut rng);
 
         let tempdir = tempfile::tempdir().unwrap();
         let store = Store::new(tempdir, vec![], 2).unwrap();
