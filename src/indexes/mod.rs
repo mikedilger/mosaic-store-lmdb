@@ -2,10 +2,10 @@ use crate::Error;
 use heed::byteorder::NativeEndian;
 use heed::types::{Bytes, U64};
 use heed::{
-    Database, DatabaseFlags, Env, EnvFlags, EnvOpenOptions, RoIter, RoPrefix, RoRange, RoTxn,
+    Database, DatabaseFlags, Env, EnvFlags, EnvOpenOptions, RoPrefix, RoRange, RoTxn,
     RwTxn, WithoutTls,
 };
-use mosaic_core::{Id, Kind, PublicKey, Record, Reference, Tag, Timestamp};
+use mosaic_core::{Kind, PublicKey, Record, Reference, Tag, Timestamp};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -60,7 +60,8 @@ pub(crate) use keys::{PrefixRevstamp, PrefixRevstampCodec};
 #[derive(Debug)]
 pub(crate) struct Indexes {
     env: Env<WithoutTls>,
-    general: Database<Bytes, Bytes>,
+    // We will add 'general' when we need it
+    // general: Database<Bytes, Bytes>,
     ref_index: Database<Bytes, U64<NativeEndian>>,
     pubkey_rts_index: Database<PrefixRevstampCodec, U64<NativeEndian>>,
     kind_rts_index: Database<KindRevstampCodec, U64<NativeEndian>>,
@@ -86,10 +87,10 @@ impl Indexes {
 
         // Open/Create maps
         let mut txn = env.write_txn()?;
-        let general = env
-            .database_options()
-            .types::<Bytes, Bytes>()
-            .create(&mut txn)?;
+        // let general = env
+        //    .database_options()
+        //    .types::<Bytes, Bytes>()
+        //    .create(&mut txn)?;
         let ref_index = env
             .database_options()
             .types::<Bytes, U64<NativeEndian>>()
@@ -128,7 +129,7 @@ impl Indexes {
 
         let indexes = Indexes {
             env,
-            general,
+            // general,
             ref_index,
             pubkey_rts_index,
             kind_rts_index,
@@ -268,10 +269,11 @@ impl Indexes {
     }
 
     /// Deindex an Id from the ref_index
-    pub(crate) fn deindex_id(&self, txn: &mut RwTxn<'_>, id: Id) -> Result<(), Error> {
-        let _ = self.ref_index.delete(txn, id.as_bytes())?;
-        Ok(())
-    }
+    // We will define once we need it
+    // pub(crate) fn deindex_id(&self, txn: &mut RwTxn<'_>, id: Id) -> Result<(), Error> {
+    //   let _ = self.ref_index.delete(txn, id.as_bytes())?;
+    //   Ok(())
+    // }
 
     /// Get the offset from reference
     pub(crate) fn get_offset_by_ref(
@@ -288,12 +290,13 @@ impl Indexes {
     }
 
     /// Iterate through ref_index
-    pub(crate) fn iter_refs<'a>(
-        &'a self,
-        txn: &'a RoTxn,
-    ) -> Result<RoIter<'a, Bytes, U64<NativeEndian>>, Error> {
-        Ok(self.ref_index.iter(txn)?)
-    }
+    // we will define once we need it
+    // pub(crate) fn iter_refs<'a>(
+    //   &'a self,
+    //   txn: &'a RoTxn,
+    // ) -> Result<RoIter<'a, Bytes, U64<NativeEndian>>, Error> {
+    //    Ok(self.ref_index.iter(txn)?)
+    //}
 
     /// Iterate through records of a given timestamp
     ///

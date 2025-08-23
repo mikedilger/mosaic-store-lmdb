@@ -605,6 +605,19 @@ impl Store {
 
         Ok(records)
     }
+
+    /// Close this Store. The data remains on disk.
+    ///
+    /// Run this before (instead of) dropping `Store` to ensure data consistency on disk.
+    pub fn close(self) {
+        let Store {
+            indexes, ..
+        } = self;
+
+        if let Err(e) = indexes.close() {
+            eprintln!("Error closing LMDB indexes: {e}");
+        }
+    }
 }
 
 // We use this wrapper that sorts in reverse time order in order to use
