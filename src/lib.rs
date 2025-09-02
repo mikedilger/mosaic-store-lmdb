@@ -343,13 +343,13 @@ impl Store {
         let has_kinds = filter.get_element(FilterElementType::KINDS).is_some();
 
         let since = match filter.get_element(FilterElementType::SINCE) {
-            None => Timestamp::min(),
-            Some(fe) => fe.since()?.unwrap_or(Timestamp::min()),
+            None => Timestamp::MIN,
+            Some(fe) => fe.since()?.unwrap_or(Timestamp::MIN),
         };
 
         let until = match filter.get_element(FilterElementType::UNTIL) {
-            None => Timestamp::max(),
-            Some(fe) => fe.until()?.unwrap_or(Timestamp::max()),
+            None => Timestamp::MAX,
+            Some(fe) => fe.until()?.unwrap_or(Timestamp::MAX),
         };
 
         if has_timestamps {
